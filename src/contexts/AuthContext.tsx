@@ -4,11 +4,12 @@ import {
   useState,
   useEffect,
   ReactNode,
+  useRef,
 } from "react";
 import { supabase } from "../lib/supabase";
 import type { User, Session } from "@supabase/supabase-js";
 import { toast } from "react-hot-toast";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 interface AuthContextType {
   user: User | null;
@@ -34,6 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectInProgressRef = useRef(false);
 
   useEffect(() => {
     // Initial session check
@@ -86,6 +89,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, [navigate]);
+
+  // Handle admin redirect in a separate effect to avoid infinite loops
+  useEffect(() => {
+    // Don't do anything if still loading or if a redirect is already in progress
+    if (loading || redirectInProgressRef.current) return;
+
+    const currentPath = location.pathname;
+
+    // Only redirect if:
+    // 1. User is confirmed admin
+    // 2. Not already on an admin route
+    // 3. Not on login or register page
+    // 4. No redirect is currently in progress
+    if (
+      isAdmin &&
+      profile &&
+      !currentPath.startsWith("/admin") &&
+      !currentPath.includes("login") &&
+      !currentPath.includes("register")
+    ) {
+      console.log("Admin redirect: detected admin on non-admin route");
+
+      // Set flag to prevent multiple redirects
+      redirectInProgressRef.current = true;
+
+      // Use a small timeout to avoid potential race conditions
+      setTimeout(() => {
+        console.log("Admin redirect: navigating to /admin");
+        navigate("/admin", { replace: true });
+
+        // Reset the flag after redirect completes
+        setTimeout(() => {
+          redirectInProgressRef.current = false;
+        }, 1000);
+      }, 100);
+    }
+  }, [isAdmin, profile, loading, location.pathname, navigate]);
 
   async function fetchUserProfile(userId: string) {
     try {
@@ -153,6 +193,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     try {
+      // Show loading toast while authenticating
+      const loadingToast = toast.loading("Signing in...");
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -160,16 +203,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error("Sign in error:", error);
+        toast.dismiss(loadingToast);
+        toast.error(error.message || "Failed to sign in");
         return { error };
       }
 
       if (data.user) {
-        await fetchUserProfile(data.user.id);
+        // Get user profile to check role
+        const profile = await fetchUserProfile(data.user.id);
+
+        // Dismiss the general loading toast
+        toast.dismiss(loadingToast);
+
+        if (profile?.is_admin) {
+          // For admin users, show admin-specific success message
+          toast.success("Welcome back, Admin!");
+          redirectInProgressRef.current = true;
+          navigate("/admin", { replace: true });
+          // Reset flag after navigation
+          setTimeout(() => {
+            redirectInProgressRef.current = false;
+          }, 1000);
+        } else {
+          // For regular users, redirect to user dashboard
+          toast.success("Sign in successful!");
+          navigate("/dashboard", { replace: true });
+        }
       }
 
       return { error: null };
     } catch (error) {
       console.error("Error signing in:", error);
+      toast.error("An unexpected error occurred. Please try again.");
       return { error };
     }
   }

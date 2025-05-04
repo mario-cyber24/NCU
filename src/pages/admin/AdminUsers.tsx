@@ -1,25 +1,32 @@
-import { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   getAllUsers,
   updateAccountBalance,
   addTransaction,
+  createUser,
+  resendWelcomeEmail as resendEmail,
 } from "../../lib/supabase";
-import { toast } from "react-hot-toast";
+import Header from "../../components/Header";
+import AdminLayout from "../../components/AdminLayout";
 import {
-  Search,
+  RefreshCw,
+  ChevronDown,
   Edit,
+  CreditCard,
+  Search,
+  Check,
+  X,
+  Mail,
+  UserPlus,
+  Square,
+  CheckSquare,
   User,
   Plus,
-  X,
-  Check,
-  AlertTriangle,
-  Filter,
   Download,
-  Trash2,
-  CheckSquare,
-  Square,
-  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -39,6 +46,17 @@ export default function AdminUsers() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [balanceFilter, setBalanceFilter] = useState<string>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // New state variables for the "Add New User" functionality
+  const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
+  const [newUserFullName, setNewUserFullName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserInitialBalance, setNewUserInitialBalance] = useState("");
+  const [newUserRole, setNewUserRole] = useState("regular"); // "regular" or "admin"
+  const [newUserStatus, setNewUserStatus] = useState("active"); // "active" or "inactive"
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [tempPassword, setTempPassword] = useState("");
 
   useEffect(() => {
     fetchUsers();
@@ -293,6 +311,49 @@ export default function AdminUsers() {
     }
   };
 
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newUserFullName || !newUserEmail) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    setIsCreatingUser(true);
+
+    try {
+      const newUser = {
+        full_name: newUserFullName,
+        email: newUserEmail,
+        initial_balance: parseFloat(newUserInitialBalance) || 0,
+        role: newUserRole,
+        status: newUserStatus,
+      };
+
+      const { tempPassword } = await createUser(newUser);
+
+      setTempPassword(tempPassword);
+      setEmailSent(true);
+      toast.success("User created successfully");
+      fetchUsers();
+    } catch (error) {
+      console.error("Error creating user:", error);
+      toast.error("Failed to create user");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  };
+
+  const handleResendWelcomeEmail = async () => {
+    try {
+      await resendEmail(newUserEmail);
+      toast.success("Welcome email resent successfully");
+    } catch (error) {
+      console.error("Error resending welcome email:", error);
+      toast.error("Failed to resend welcome email");
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       <div className="md:flex md:items-center md:justify-between mb-6">
@@ -305,6 +366,14 @@ export default function AdminUsers() {
         </div>
 
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsNewUserModalOpen(true)}
+            className="btn btn-primary flex items-center"
+          >
+            <UserPlus size={16} className="mr-2" />
+            New User
+          </button>
+
           <button
             onClick={fetchUsers}
             disabled={isRefreshing}
@@ -842,6 +911,226 @@ export default function AdminUsers() {
                 </form>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add New User Modal */}
+      {isNewUserModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Add New User
+              </h3>
+              <button
+                onClick={() => {
+                  setIsNewUserModalOpen(false);
+                  setEmailSent(false);
+                  setTempPassword("");
+                }}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {!emailSent ? (
+              <form onSubmit={handleCreateUser}>
+                <div className="px-6 py-4 space-y-4">
+                  <div>
+                    <label
+                      htmlFor="newUserFullName"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      id="newUserFullName"
+                      value={newUserFullName}
+                      onChange={(e) => setNewUserFullName(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="John Doe"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="newUserEmail"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      id="newUserEmail"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="john@example.com"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="newUserInitialBalance"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Initial Balance (D)
+                    </label>
+                    <input
+                      type="number"
+                      id="newUserInitialBalance"
+                      value={newUserInitialBalance}
+                      onChange={(e) => setNewUserInitialBalance(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="0.00"
+                      min="0"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        htmlFor="newUserRole"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        User Role
+                      </label>
+                      <select
+                        id="newUserRole"
+                        value={newUserRole}
+                        onChange={(e) => setNewUserRole(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      >
+                        <option value="regular">Regular User</option>
+                        <option value="admin">Administrator</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="newUserStatus"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        Status
+                      </label>
+                      <select
+                        id="newUserStatus"
+                        value={newUserStatus}
+                        onChange={(e) => setNewUserStatus(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-6 py-4 bg-gray-50 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewUserModalOpen(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 mr-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreatingUser}
+                    className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                  >
+                    {isCreatingUser ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin mr-2" />
+                        Creating...
+                      </>
+                    ) : (
+                      "Create User"
+                    )}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="px-6 py-4">
+                <div className="text-center mb-4">
+                  <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <Check size={24} className="text-green-600" />
+                  </div>
+                  <h3 className="mt-3 text-lg font-medium text-gray-900">
+                    User Created Successfully
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    A welcome email has been sent to {newUserEmail} with login
+                    instructions.
+                  </p>
+                </div>
+
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium text-gray-700">
+                      Temporary Password:
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      For your records only
+                    </span>
+                  </div>
+                  <div className="bg-white p-2 border border-gray-300 rounded flex items-center justify-between">
+                    <span className="font-mono text-sm">{tempPassword}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(tempPassword);
+                        toast.success("Password copied to clipboard");
+                      }}
+                      className="text-gray-500 hover:text-gray-700"
+                      aria-label="Copy password"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                        <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <button
+                    onClick={handleResendWelcomeEmail}
+                    className="w-full inline-flex justify-center items-center px-4 py-2 text-sm font-medium text-primary-600 bg-transparent border border-primary-600 rounded-md hover:bg-primary-50"
+                  >
+                    <Mail size={16} className="mr-2" />
+                    Resend Welcome Email
+                  </button>
+                </div>
+
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => {
+                      setIsNewUserModalOpen(false);
+                      setEmailSent(false);
+                      setNewUserFullName("");
+                      setNewUserEmail("");
+                      setNewUserInitialBalance("");
+                      setNewUserRole("regular");
+                      setNewUserStatus("active");
+                      setTempPassword("");
+                    }}
+                    className="text-sm font-medium text-primary-600 hover:text-primary-500"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

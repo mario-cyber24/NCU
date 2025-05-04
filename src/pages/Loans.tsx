@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import Header from "../components/Header";
+import { supabase } from "../lib/supabase";
 import {
   Building2,
   Car,
@@ -24,7 +27,6 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
 
 interface LoanType {
   id: string;
@@ -39,16 +41,35 @@ interface LoanType {
 
 export default function Loans() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [activeLoanType, setActiveLoanType] = useState<string | null>(null);
   const [loanAmount, setLoanAmount] = useState(100000);
   const [loanTerm, setLoanTerm] = useState(24);
   const [sliderFocus, setSliderFocus] = useState<string | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const interestRate = 0.01; // 1% annual interest rate
 
   const [searchParams] = useSearchParams();
   const loanTypeParam = searchParams.get("type");
-  const heroRef = useRef<HTMLDivElement>(null);
   const [scrollPosition, setScrollPosition] = useState(0);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // Track scroll position for parallax effects
   useEffect(() => {
@@ -273,6 +294,20 @@ export default function Loans() {
       ],
     },
   ];
+
+  const handleLoanTypeSelect = (loanId: string) => {
+    setActiveLoanType(loanId);
+    setShowDropdown(false);
+
+    // Scroll to loan options section
+    const loanOptionsElement = document.getElementById("loan-options");
+    if (loanOptionsElement) {
+      loanOptionsElement.scrollIntoView({ behavior: "smooth" });
+    }
+
+    // Update URL with selected loan type
+    navigate(`/loans?type=${loanId}`, { replace: true });
+  };
 
   const getLoan = (id: string) => loanTypes.find((loan) => loan.id === id);
 
@@ -859,169 +894,211 @@ export default function Loans() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary-800 via-primary-700 to-primary-600 h-[70vh] max-h-[800px] min-h-[500px] flex items-center justify-center">
-        <div className="absolute inset-0 overflow-hidden">
-          <div
-            className="absolute top-0 left-0 w-full h-full bg-[url('https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80')] opacity-10 bg-cover bg-center"
-            style={{ transform: `translateY(${scrollPosition * 0.2}px)` }}
-          />
-          <div className="absolute inset-0 bg-primary-900/50" />
+    <>
+      <Header />
+      <div className="min-h-screen bg-gray-50">
+        <div className="relative overflow-hidden bg-gradient-to-br from-primary-800 via-primary-700 to-primary-600 h-[70vh] max-h-[800px] min-h-[500px] flex items-center justify-center">
+          <div className="absolute inset-0 overflow-hidden">
+            <div
+              className="absolute top-0 left-0 w-full h-full bg-[url('https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80')] opacity-10 bg-cover bg-center"
+              style={{ transform: `translateY(${scrollPosition * 0.2}px)` }}
+            />
+            <div className="absolute inset-0 bg-primary-900/50" />
 
-          <div className="absolute -top-20 -left-20 w-64 h-64 bg-primary-500/20 rounded-full blur-3xl animate-blob" />
-          <div className="absolute top-1/2 -right-20 w-80 h-80 bg-primary-400/20 rounded-full blur-3xl animate-blob animation-delay-2000" />
-          <div className="absolute bottom-20 left-1/3 w-72 h-72 bg-primary-300/20 rounded-full blur-3xl animate-blob animation-delay-4000" />
-        </div>
+            <div className="absolute -top-20 -left-20 w-64 h-64 bg-primary-500/20 rounded-full blur-3xl animate-blob" />
+            <div className="absolute top-1/2 -right-20 w-80 h-80 bg-primary-400/20 rounded-full blur-3xl animate-blob animation-delay-2000" />
+            <div className="absolute bottom-20 left-1/3 w-72 h-72 bg-primary-300/20 rounded-full blur-3xl animate-blob animation-delay-4000" />
+          </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 z-10 w-full">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div className="text-center lg:text-left">
-              <div className="inline-flex items-center px-3 py-1 rounded-full bg-primary-800/50 backdrop-blur-sm border border-primary-600/50 text-primary-100 text-sm font-medium mb-6">
-                <Sparkles className="w-4 h-4 mr-2" />
-                <span>Industry-Leading 1% Interest Rate</span>
-              </div>
-
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-tight tracking-tight mb-6">
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-primary-200">
-                  Unlock Your Dreams
-                </span>
-                <br />
-                with Affordable Financing
-              </h1>
-
-              <p className="text-lg md:text-xl text-primary-100 max-w-xl mx-auto lg:mx-0 mb-8">
-                Choose from our range of flexible loan options designed to meet
-                your needs with the most competitive rates in The Gambia.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <a
-                  href="#loan-calculator"
-                  className="px-8 py-4 bg-white text-primary-700 font-semibold rounded-xl hover:bg-primary-50 shadow-lg shadow-primary-900/20 transition-all duration-300 flex items-center justify-center"
-                >
-                  Calculate Your Loan
-                  <BarChart3 className="w-5 h-5 ml-2" />
-                </a>
-                <Link
-                  to="#loan-options"
-                  className="px-8 py-4 bg-primary-700/50 backdrop-blur-sm border border-primary-500/50 text-white font-semibold rounded-xl hover:bg-primary-700/70 transition-all duration-300 flex items-center justify-center"
-                >
-                  Explore Loan Types
-                  <ChevronDown className="w-5 h-5 ml-2" />
-                </Link>
-              </div>
-
-              <div className="mt-12 grid grid-cols-3 gap-6 text-center">
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
-                    <Clock className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-white text-sm font-medium">
-                    24-Hour Approval
-                  </p>
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 z-10 w-full">
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div className="text-center lg:text-left">
+                <div className="inline-flex items-center px-3 py-1 rounded-full bg-primary-800/50 backdrop-blur-sm border border-primary-600/50 text-primary-100 text-sm font-medium mb-6">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  <span>Industry-Leading 1% Interest Rate</span>
                 </div>
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
-                    <BadgeCheck className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-white text-sm font-medium">
-                    100% Transparent
-                  </p>
-                </div>
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
-                    <Users className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-white text-sm font-medium">
-                    5000+ Members
-                  </p>
-                </div>
-              </div>
-            </div>
 
-            {/* Credit Union 3D Logo instead of credit card */}
-            <div className="hidden lg:flex justify-center items-center perspective-1000">
-              <div className="relative w-[400px] h-[300px] cu-logo-3d transform rotate-y-15 rotate-x-15 transition-transform duration-500 hover:rotate-y-0 hover:rotate-x-0">
-                {/* Back side */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary-400 via-primary-500 to-primary-700 shadow-2xl p-6 flex flex-col justify-between transform-style-3d rotate-y-180 backface-hidden">
-                  <div className="flex flex-col items-center justify-center h-full space-y-6">
-                    <div className="text-center">
-                      <p className="text-white font-semibold text-xl">
-                        NAWEC Credit Union
-                      </p>
-                      <p className="text-primary-100 text-sm">
-                        Serving our members since 1995
-                      </p>
-                    </div>
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-tight tracking-tight mb-6">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-primary-200">
+                    Unlock Your Dreams
+                  </span>
+                  <br />
+                  with Affordable Financing
+                </h1>
 
-                    <div className="h-24 w-24 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        className="h-16 w-16 text-white"
-                        stroke="currentColor"
+                <p className="text-lg md:text-xl text-primary-100 max-w-xl mx-auto lg:mx-0 mb-8">
+                  Choose from our range of flexible loan options designed to
+                  meet your needs with the most competitive rates in The Gambia.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                  <a
+                    href="#loan-calculator"
+                    className="px-8 py-4 bg-white text-primary-700 font-semibold rounded-xl hover:bg-primary-50 shadow-lg shadow-primary-900/20 transition-all duration-300 flex items-center justify-center"
+                  >
+                    Calculate Your Loan
+                    <BarChart3 className="w-5 h-5 ml-2" />
+                  </a>
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      onClick={() => setShowDropdown(!showDropdown)}
+                      className="w-full px-8 py-4 bg-primary-700/50 backdrop-blur-sm border border-primary-500/50 text-white font-semibold rounded-xl hover:bg-primary-700/70 transition-all duration-300 flex items-center justify-center"
+                    >
+                      Explore Loan Types
+                      <ChevronDown
+                        className={`w-5 h-5 ml-2 transition-transform duration-300 ${
+                          showDropdown ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showDropdown && (
+                      <div
+                        className="fixed left-0 right-0 mt-2 mx-auto w-72 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden"
+                        style={{
+                          zIndex: 1000,
+                          maxHeight: "80vh",
+                          overflowY: "auto",
+                          top: "auto",
+                        }}
                       >
-                        <circle cx="12" cy="12" r="10" strokeWidth="2" />
-                        <path d="M7 12h10M12 7v10" strokeWidth="2" />
-                      </svg>
-                    </div>
-
-                    <div className="text-center text-white">
-                      <p className="text-sm font-medium">
-                        Financial Empowerment
-                      </p>
-                      <p className="text-primary-100 text-xs mt-1">
-                        Together we rise
-                      </p>
-                    </div>
+                        {loanTypes.map((loan) => (
+                          <button
+                            key={loan.id}
+                            onClick={() => handleLoanTypeSelect(loan.id)}
+                            className="w-full flex items-center px-4 py-3 hover:bg-primary-50 transition-colors border-b border-gray-100 last:border-0"
+                          >
+                            <div className="p-2 mr-3 bg-primary-50 text-primary-600 rounded-lg">
+                              {loan.icon}
+                            </div>
+                            <div className="text-left">
+                              <div className="font-medium text-gray-900">
+                                {loan.title}
+                              </div>
+                              <div className="text-xs text-gray-500 line-clamp-1">
+                                {loan.description}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Front side */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary-500 via-primary-600 to-primary-800 shadow-2xl flex flex-col items-center justify-center transform-style-3d backface-hidden">
-                  <div className="flex flex-col items-center space-y-6 p-6">
-                    <div className="w-28 h-28 rounded-full bg-white flex items-center justify-center relative">
-                      <div className="absolute inset-0 rounded-full border-4 border-primary-500"></div>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        className="w-16 h-16 text-primary-600"
-                      >
-                        <path
-                          fill="currentColor"
-                          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"
-                        />
-                      </svg>
+                <div className="mt-12 grid grid-cols-3 gap-6 text-center">
+                  <div className="flex flex-col items-center">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
+                      <Clock className="w-6 h-6 text-white" />
                     </div>
-
-                    <div className="text-center">
-                      <h3 className="text-white font-bold text-2xl">
-                        NAWEC Credit Union
-                      </h3>
-                      <p className="text-primary-100 mt-1">
-                        People Helping People
-                      </p>
+                    <p className="text-white text-sm font-medium">
+                      24-Hour Approval
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
+                      <BadgeCheck className="w-6 h-6 text-white" />
                     </div>
+                    <p className="text-white text-sm font-medium">
+                      100% Transparent
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm mb-2">
+                      <Users className="w-6 h-6 text-white" />
+                    </div>
+                    <p className="text-white text-sm font-medium">
+                      5000+ Members
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-                    <div className="w-full max-w-[270px] p-4 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
+              {/* Credit Union 3D Logo instead of credit card */}
+              <div className="hidden lg:flex justify-center items-center perspective-1000">
+                <div className="relative w-[400px] h-[300px] cu-logo-3d transform rotate-y-15 rotate-x-15 transition-transform duration-500 hover:rotate-y-0 hover:rotate-x-0">
+                  {/* Back side */}
+                  <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary-400 via-primary-500 to-primary-700 shadow-2xl p-6 flex flex-col justify-between transform-style-3d rotate-y-180 backface-hidden">
+                    <div className="flex flex-col items-center justify-center h-full space-y-6">
                       <div className="text-center">
-                        <p className="text-white text-sm font-medium mb-1">
-                          Industry Leading Rate
+                        <p className="text-white font-semibold text-xl">
+                          NAWEC CO-OPERATIVE CREDIT UNION
                         </p>
-                        <p className="text-white text-3xl font-bold">
-                          1% Interest
+                        <p className="text-primary-100 text-sm">
+                          Serving our members since 1995
                         </p>
-                        <p className="text-white/80 text-sm mt-1">
-                          Building Futures Together
+                      </div>
+
+                      <div className="h-24 w-24 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          className="h-16 w-16 text-white"
+                          stroke="currentColor"
+                        >
+                          <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                          <path d="M7 12h10M12 7v10" strokeWidth="2" />
+                        </svg>
+                      </div>
+
+                      <div className="text-center text-white">
+                        <p className="text-sm font-medium">
+                          Financial Empowerment
+                        </p>
+                        <p className="text-primary-100 text-xs mt-1">
+                          Together we rise
                         </p>
                       </div>
                     </div>
+                  </div>
 
-                    <div className="flex items-center justify-center gap-2 text-white/80 text-sm">
-                      <BadgeCheck className="w-4 h-4" />
-                      <span>Member-owned</span>
-                      <span>•</span>
-                      <span>Not-for-profit</span>
+                  {/* Front side */}
+                  <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary-500 via-primary-600 to-primary-800 shadow-2xl flex flex-col items-center justify-center transform-style-3d backface-hidden">
+                    <div className="flex flex-col items-center space-y-6 p-6">
+                      <div className="w-28 h-28 rounded-full bg-white flex items-center justify-center relative">
+                        <div className="absolute inset-0 rounded-full border-4 border-primary-500"></div>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          className="w-16 h-16 text-primary-600"
+                        >
+                          <path
+                            fill="currentColor"
+                            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"
+                          />
+                        </svg>
+                      </div>
+
+                      <div className="text-center">
+                        <h3 className="text-white font-bold text-2xl">
+                          NAWEC Credit Union
+                        </h3>
+                        <p className="text-primary-100 mt-1">
+                          People Helping People
+                        </p>
+                      </div>
+
+                      <div className="w-full max-w-[270px] p-4 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
+                        <div className="text-center">
+                          <p className="text-white text-sm font-medium mb-1">
+                            Industry Leading Rate
+                          </p>
+                          <p className="text-white text-3xl font-bold">
+                            1% Interest
+                          </p>
+                          <p className="text-white/80 text-sm mt-1">
+                            Building Futures Together
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-2 text-white/80 text-sm">
+                        <BadgeCheck className="w-4 h-4" />
+                        <span>Member-owned</span>
+                        <span>•</span>
+                        <span>Not-for-profit</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1218,6 +1295,6 @@ export default function Loans() {
           {renderCTA()}
         </div>
       </div>
-    </div>
+    </>
   );
 }

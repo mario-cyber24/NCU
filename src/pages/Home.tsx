@@ -264,9 +264,9 @@ export default function Home() {
                   <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-primary-700">
                     NAWEC
                   </h1>
-                  <p className="text-xs sm:text-sm text-gray-600 tracking-wider font-medium">
-                    Credit Union{" "}
-                    <span className="hidden sm:inline">
+                  <p className="text-xs sm:text-sm text-gray-600 tracking-wider font-medium uppercase">
+                    CO-OPERATIVE CREDIT UNION{" "}
+                    <span className="hidden sm:inline lowercase">
                       • Banking for All Gambians
                     </span>
                   </p>
@@ -340,36 +340,39 @@ export default function Home() {
                   )}
                 </Link>
 
-                <Link
-                  to="/loans"
-                  onClick={() => {
-                    setActiveTab("loans");
-                    closeAllMenus();
-                  }}
-                  className={`
-                    px-4 py-2 rounded-lg transition-all duration-300 font-medium relative group
-                    ${
-                      activeTab === "loans"
-                        ? "text-primary-700 bg-primary-50"
-                        : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
-                    }
-                  `}
-                >
-                  <span className="relative z-10 flex items-center">
-                    <CreditCard
-                      size={16}
-                      className={`mr-1.5 ${
+                {/* Hide Loans link for admin users */}
+                {!profile?.is_admin && (
+                  <Link
+                    to="/loans"
+                    onClick={() => {
+                      setActiveTab("loans");
+                      closeAllMenus();
+                    }}
+                    className={`
+                      px-4 py-2 rounded-lg transition-all duration-300 font-medium relative group
+                      ${
                         activeTab === "loans"
-                          ? "text-primary-500"
-                          : "text-gray-400 group-hover:text-primary-500"
-                      } transition-colors`}
-                    />
-                    Loans
-                  </span>
-                  {activeTab === "loans" && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
-                  )}
-                </Link>
+                          ? "text-primary-700 bg-primary-50"
+                          : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
+                      }
+                    `}
+                  >
+                    <span className="relative z-10 flex items-center">
+                      <CreditCard
+                        size={16}
+                        className={`mr-1.5 ${
+                          activeTab === "loans"
+                            ? "text-primary-500"
+                            : "text-gray-400 group-hover:text-primary-500"
+                        } transition-colors`}
+                      />
+                      Loans
+                    </span>
+                    {activeTab === "loans" && (
+                      <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
+                    )}
+                  </Link>
+                )}
               </nav>
 
               {/* Search */}
@@ -562,24 +565,27 @@ export default function Home() {
                   About
                 </Link>
 
-                <Link
-                  to="/loans"
-                  className={`
-                    flex items-center px-4 py-3 rounded-lg transition-all duration-200
-                    ${
-                      activeTab === "loans"
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-gray-700 hover:bg-gray-50"
-                    }
-                  `}
-                  onClick={() => {
-                    setActiveTab("loans");
-                    closeAllMenus();
-                  }}
-                >
-                  <CreditCard size={16} className="mr-2 text-gray-400" />
-                  Loans
-                </Link>
+                {/* Hide Loans link for admin users in mobile menu too */}
+                {!profile?.is_admin && (
+                  <Link
+                    to="/loans"
+                    className={`
+                      flex items-center px-4 py-3 rounded-lg transition-all duration-200
+                      ${
+                        activeTab === "loans"
+                          ? "bg-primary-50 text-primary-700"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }
+                    `}
+                    onClick={() => {
+                      setActiveTab("loans");
+                      closeAllMenus();
+                    }}
+                  >
+                    <CreditCard size={16} className="mr-2 text-gray-400" />
+                    Loans
+                  </Link>
+                )}
               </nav>
 
               <div className="mt-4 pt-4 border-t border-gray-100">
@@ -771,123 +777,127 @@ export default function Home() {
       </div>
 
       {/* Featured Interest Rate - New */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-700 py-8 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg')] opacity-5 bg-cover bg-center" />
+      {!profile?.is_admin && (
+        <div className="bg-gradient-to-r from-primary-600 to-primary-700 py-8 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg')] opacity-5 bg-cover bg-center" />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center">
-              <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white">
-                <Sparkles className="w-7 h-7" />
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex items-center">
+                <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white">
+                  <Sparkles className="w-7 h-7" />
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-2xl font-bold text-white">
+                    Unbeatable 1% Interest Rate
+                  </h3>
+                  <p className="text-primary-100">
+                    On all our loan products for Gambians{" "}
+                  </p>
+                </div>
               </div>
-              <div className="ml-4">
-                <h3 className="text-2xl font-bold text-white">
-                  Unbeatable 1% Interest Rate
-                </h3>
-                <p className="text-primary-100">
-                  On all our loan products for Gambians{" "}
-                </p>
-              </div>
+
+              <Link
+                to="/loans"
+                className="inline-flex items-center px-6 py-3 bg-white text-primary-700 rounded-full font-semibold hover:bg-primary-50 transition-all duration-300 group"
+              >
+                Apply Now
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+              </Link>
             </div>
-
-            <Link
-              to="/loans"
-              className="inline-flex items-center px-6 py-3 bg-white text-primary-700 rounded-full font-semibold hover:bg-primary-50 transition-all duration-300 group"
-            >
-              Apply Now
-              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-            </Link>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Loan Showcase Section */}
-      <div className="relative py-24 bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg')] opacity-10 bg-cover bg-center" />
-          <div className="absolute inset-0 bg-gradient-to-t from-primary-900/90 via-primary-800/50 to-transparent" />
+      {!profile?.is_admin && (
+        <div className="relative py-24 bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 overflow-hidden">
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 bg-[url('https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg')] opacity-10 bg-cover bg-center" />
+            <div className="absolute inset-0 bg-gradient-to-t from-primary-900/90 via-primary-800/50 to-transparent" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
+                Unlock Your Dreams with Just 1% Interest
+              </h2>
+              <p className="text-xl text-primary-100 max-w-3xl mx-auto">
+                Whether you're building a home, starting a business, or pursuing
+                education, we offer the most competitive rates in The Gambia.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
+                  <Building2 className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">
+                  Building Loans
+                </h3>
+                <p className="text-primary-100 mb-4">
+                  Make your dream home a reality with our staff building loans
+                  up to D1,000,000
+                </p>
+                <Link
+                  to="/loans?type=building"
+                  className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
+                >
+                  Learn more <ArrowRight className="w-4 h-4 ml-2" />
+                </Link>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
+                  <LayoutGrid className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">
+                  Business Loans
+                </h3>
+                <p className="text-primary-100 mb-4">
+                  Grow your business with our flexible financing options up to
+                  D500,000
+                </p>
+                <Link
+                  to="/loans?type=business"
+                  className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
+                >
+                  Learn more <ArrowRight className="w-4 h-4 ml-2" />
+                </Link>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
+                  <GraduationCap className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">
+                  Education Loans
+                </h3>
+                <p className="text-primary-100 mb-4">
+                  Invest in your future with education financing up to D200,000
+                </p>
+                <Link
+                  to="/loans?type=education"
+                  className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
+                >
+                  Learn more <ArrowRight className="w-4 h-4 ml-2" />
+                </Link>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <Link
+                to="/loans"
+                className="inline-flex items-center px-8 py-4 bg-white text-primary-600 rounded-full font-semibold hover:bg-primary-50 transition-all duration-300 group"
+              >
+                View All Loan Options
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
+          </div>
         </div>
-
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
-              Unlock Your Dreams with Just 1% Interest
-            </h2>
-            <p className="text-xl text-primary-100 max-w-3xl mx-auto">
-              Whether you're building a home, starting a business, or pursuing
-              education, we offer the most competitive rates in The Gambia.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-              <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
-                <Building2 className="w-6 h-6 text-white" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">
-                Building Loans
-              </h3>
-              <p className="text-primary-100 mb-4">
-                Make your dream home a reality with our staff building loans up
-                to D1,000,000
-              </p>
-              <Link
-                to="/loans?type=building"
-                className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
-              >
-                Learn more <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-              <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
-                <LayoutGrid className="w-6 h-6 text-white" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">
-                Business Loans
-              </h3>
-              <p className="text-primary-100 mb-4">
-                Grow your business with our flexible financing options up to
-                D500,000
-              </p>
-              <Link
-                to="/loans?type=business"
-                className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
-              >
-                Learn more <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-              <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center mb-4">
-                <GraduationCap className="w-6 h-6 text-white" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">
-                Education Loans
-              </h3>
-              <p className="text-primary-100 mb-4">
-                Invest in your future with education financing up to D200,000
-              </p>
-              <Link
-                to="/loans?type=education"
-                className="inline-flex items-center text-white hover:text-primary-200 transition-colors"
-              >
-                Learn more <ArrowRight className="w-4 h-4 ml-2" />
-              </Link>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <Link
-              to="/loans"
-              className="inline-flex items-center px-8 py-4 bg-white text-primary-600 rounded-full font-semibold hover:bg-primary-50 transition-all duration-300 group"
-            >
-              View All Loan Options
-              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-            </Link>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Featured Services Section - New */}
       <div className="py-20 bg-gray-50 relative overflow-hidden">
@@ -1249,8 +1259,8 @@ export default function Home() {
               </p>
               <div className="pt-4">
                 <p className="text-xs text-gray-400">
-                  © {new Date().getFullYear()} NAWEC Credit Union. All rights
-                  reserved.
+                  © {new Date().getFullYear()} NAWEC CO-OPERATIVE CREDIT UNION.
+                  All rights reserved.
                 </p>
               </div>
             </div>
@@ -1456,8 +1466,8 @@ export default function Home() {
 
           <div className="mt-12 pt-8 border-t border-gray-800 text-center text-xs text-gray-400 md:flex md:justify-between md:text-left">
             <p>
-              © {new Date().getFullYear()} NAWEC Credit Union. All rights
-              reserved.
+              © {new Date().getFullYear()} NAWEC CO-OPERATIVE CREDIT UNION. All
+              rights reserved.
             </p>
             <div className="mt-4 md:mt-0 flex flex-col md:flex-row md:items-center">
               <div className="space-x-4 mb-2 md:mb-0">

@@ -621,3 +621,412 @@ export async function bulkUpdateBalances(updates) {
     throw error;
   }
 }
+
+/**
+ * Get all loans with user data
+ * @param {number} limit - Optional limit for number of loans
+ * @returns {Promise<Array>} - Array of loans with user data
+ */
+export async function getAllLoans(limit = 100) {
+  try {
+    const { data, error } = await supabase
+      .from("loans")
+      .select(
+        `
+        *,
+        profiles (
+          id,
+          full_name,
+          email
+        )
+      `
+      )
+      .order("application_date", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    // Process loans to ensure amounts are numbers
+    const processedLoans = (data || []).map((loan) => ({
+      ...loan,
+      amount: Number(loan.amount) || 0,
+      monthly_payment: Number(loan.monthly_payment) || 0,
+      total_interest: Number(loan.total_interest) || 0,
+      total_payment: Number(loan.total_payment) || 0,
+      remaining_balance: Number(loan.remaining_balance) || 0,
+    }));
+
+    return processedLoans;
+  } catch (error) {
+    console.error("Error fetching all loans:", error);
+    return [];
+  }
+}
+
+/**
+ * Get all loan payments
+ * @param {number} limit - Optional limit for number of payments
+ * @returns {Promise<Array>} - Array of loan payments
+ */
+export async function getLoanPayments(limit = 100) {
+  try {
+    const { data, error } = await supabase
+      .from("loan_payments")
+      .select(
+        `
+        *,
+        loans (
+          id,
+          loan_type,
+          user_id,
+          amount,
+          status
+        )
+      `
+      )
+      .order("payment_date", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return data || [];
+  } catch (error) {
+    console.error("Error fetching loan payments:", error);
+    return [];
+  }
+}
+
+/**
+ * Get loan statistics for admin dashboard
+ * @returns {Promise<Object>} - Loan statistics
+ */
+export async function getLoanStatistics() {
+  try {
+    // Get all loans to calculate metrics
+    const { data: loans, error: loansError } = await supabase
+      .from("loans")
+      .select("*");
+
+    if (loansError) {
+      console.error("Error fetching loans:", loansError);
+      throw loansError;
+    }
+
+    // Get loan payments
+    const { data: payments, error: paymentsError } = await supabase
+      .from("loan_payments")
+      .select("*");
+
+    if (paymentsError) {
+      console.error("Error fetching loan payments:", paymentsError);
+      throw paymentsError;
+    }
+
+    // Initialize loan stats with default values (for when no data exists yet)
+    const stats = {
+      totalLoans: loans?.length || 0,
+      activeLoans: 0,
+      totalLoanAmount: 0,
+      totalDisbursed: 0,
+      averageLoanAmount: 0,
+      totalRepaid: 0,
+      onTimePaymentRate: 0,
+      recentApplications: 0,
+      pendingApprovals: 0,
+      defaultedLoans: 0,
+    };
+
+    // Only calculate these if we have loan data
+    if (loans?.length) {
+      // Calculate active loans (status = 'active')
+      stats.activeLoans = loans.filter(
+        (loan) => loan.status === "active"
+      ).length;
+
+      // Calculate total loan amount and disbursed amount
+      stats.totalLoanAmount = loans.reduce(
+        (sum, loan) => sum + (Number(loan.amount) || 0),
+        0
+      );
+      stats.totalDisbursed = loans
+        .filter(
+          (loan) => loan.status === "active" || loan.status === "completed"
+        )
+        .reduce((sum, loan) => sum + (Number(loan.amount) || 0), 0);
+
+      // Calculate average loan amount
+      stats.averageLoanAmount = stats.totalLoanAmount / loans.length;
+
+      // Count recent applications (last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      stats.recentApplications = loans.filter(
+        (loan) => new Date(loan.application_date) >= thirtyDaysAgo
+      ).length;
+
+      // Count pending approvals
+      stats.pendingApprovals = loans.filter(
+        (loan) => loan.status === "pending"
+      ).length;
+
+      // Count defaulted loans
+      stats.defaultedLoans = loans.filter(
+        (loan) => loan.status === "defaulted"
+      ).length;
+    }
+
+    // Calculate total repaid if we have payment data
+    if (payments?.length) {
+      stats.totalRepaid = payments.reduce(
+        (sum, payment) => sum + (Number(payment.amount) || 0),
+        0
+      );
+
+      // Calculate on-time payment rate (simplified version - would be more complex in production)
+      const totalPayments = payments.length;
+      const onTimePayments = payments.filter(
+        (payment) => payment.status === "completed"
+      ).length;
+      stats.onTimePaymentRate =
+        totalPayments > 0 ? (onTimePayments / totalPayments) * 100 : 100;
+    }
+
+    return stats;
+  } catch (error) {
+    console.error("Error in getLoanStatistics:", error);
+    // Return default values if there's an error
+    return {
+      totalLoans: 0,
+      activeLoans: 0,
+      totalLoanAmount: 0,
+      totalDisbursed: 0,
+      averageLoanAmount: 0,
+      totalRepaid: 0,
+      onTimePaymentRate: 0,
+      recentApplications: 0,
+      pendingApprovals: 0,
+      defaultedLoans: 0,
+    };
+  }
+}
+
+/**
+ * Generate a secure, random password
+ * @param {number} length - Password length (default: 12)
+ * @returns {string} - Secure random password
+ */
+function generateSecurePassword(length = 12) {
+  const charset =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
+  let password = "";
+
+  // Ensure we have at least one of each character type
+  password += charset.substr(0, 26).charAt(Math.floor(Math.random() * 26)); // Uppercase
+  password += charset.substring(26, 50).charAt(Math.floor(Math.random() * 24)); // Lowercase
+  password += charset.substring(50, 58).charAt(Math.floor(Math.random() * 8)); // Number
+  password += charset.substring(58).charAt(Math.floor(Math.random() * 8)); // Special
+
+  // Fill the rest of the password
+  for (let i = 4; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    password += charset[randomIndex];
+  }
+
+  // Shuffle the password characters
+  return password
+    .split("")
+    .sort(() => Math.random() - 0.5)
+    .join("");
+}
+
+/**
+ * Send welcome email to a new user
+ * @param {Object} user - User object with email and temporary password
+ * @returns {Promise<boolean>} - Success indicator
+ */
+async function sendWelcomeEmail(user) {
+  try {
+    // In a production environment, you would integrate with an email service like SendGrid, Mailgun, etc.
+    // For this demo, we'll just simulate a successful email send
+
+    console.log(
+      `Welcome email would be sent to ${user.email} with password: ${user.password}`
+    );
+
+    // Here you would typically call your email provider's API
+    // Example with Supabase's Edge Functions (if implemented):
+    // await supabase.functions.invoke('send-welcome-email', { body: { user } });
+
+    return true;
+  } catch (error) {
+    console.error("Error sending welcome email:", error);
+    return false;
+  }
+}
+
+/**
+ * Create a new user with all necessary related records
+ * @param {Object} userData - User data (full_name, email, role, status, initial_balance)
+ * @returns {Promise<Object>} - Created user data with temporary password
+ */
+export async function createUser(userData) {
+  try {
+    // Generate a secure temporary password
+    const tempPassword = generateSecurePassword();
+
+    // Create the user in Supabase Auth
+    const { data: authUser, error: authError } = await supabase.auth.signUp({
+      email: userData.email,
+      password: tempPassword,
+      options: {
+        data: {
+          full_name: userData.full_name,
+          is_admin: userData.role === "admin",
+        },
+      },
+    });
+
+    if (authError) throw authError;
+
+    // Create or update the user profile record
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .upsert({
+        id: authUser.user?.id,
+        email: userData.email,
+        full_name: userData.full_name,
+        is_admin: userData.role === "admin",
+        status: userData.status === "active",
+      })
+      .select()
+      .single();
+
+    if (profileError) throw profileError;
+
+    // Create an account for the user with initial balance
+    const { data: accountData, error: accountError } = await supabase
+      .from("accounts")
+      .insert({
+        user_id: authUser.user?.id,
+        balance: parseFloat(userData.initial_balance) || 0,
+      })
+      .select()
+      .single();
+
+    if (accountError) throw accountError;
+
+    // Add an initial deposit transaction if there's an initial balance
+    if (userData.initial_balance && parseFloat(userData.initial_balance) > 0) {
+      const { error: transactionError } = await supabase
+        .from("transactions")
+        .insert({
+          user_id: authUser.user?.id,
+          account_id: accountData.id,
+          amount: parseFloat(userData.initial_balance),
+          type: "deposit",
+          description: "Initial account funding",
+          status: "completed",
+        });
+
+      if (transactionError) {
+        console.error("Error creating initial transaction:", transactionError);
+        // Continue despite transaction creation error
+      }
+    }
+
+    // Log the user creation in the audit log
+    const { error: auditError } = await supabase.from("audit_log").insert({
+      action: "user_created",
+      user_id: authUser.user?.id,
+      performed_by: "admin", // Ideally, this would be the actual admin's user ID
+      details: {
+        email: userData.email,
+        full_name: userData.full_name,
+        initial_balance: parseFloat(userData.initial_balance) || 0,
+        role: userData.role,
+        status: userData.status,
+      },
+    });
+
+    if (auditError) {
+      console.error("Error logging to audit trail:", auditError);
+      // Continue despite audit log error
+    }
+
+    // Send welcome email to user
+    await sendWelcomeEmail({
+      email: userData.email,
+      full_name: userData.full_name,
+      password: tempPassword,
+    });
+
+    // Return the created user data and temporary password
+    return {
+      user: {
+        ...profileData,
+        account: accountData,
+      },
+      tempPassword,
+    };
+  } catch (error) {
+    console.error("Error creating user:", error);
+    throw error;
+  }
+}
+
+/**
+ * Resend welcome email to a user
+ * @param {string} email - User email
+ * @returns {Promise<boolean>} - Success indicator
+ */
+export async function resendWelcomeEmail(email) {
+  try {
+    // Get the user profile by email
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("email", email)
+      .single();
+
+    if (profileError) throw profileError;
+
+    // Generate a new temporary password
+    const newPassword = generateSecurePassword();
+
+    // Update the user's password
+    const { error: passwordError } = await supabase.auth.admin.updateUserById(
+      profile.id,
+      { password: newPassword }
+    );
+
+    if (passwordError) throw passwordError;
+
+    // Send the welcome email
+    await sendWelcomeEmail({
+      email: profile.email,
+      full_name: profile.full_name,
+      password: newPassword,
+    });
+
+    // Log the password reset
+    const { error: auditError } = await supabase.from("audit_log").insert({
+      action: "password_reset",
+      user_id: profile.id,
+      performed_by: "admin", // Ideally, this would be the actual admin's user ID
+      details: {
+        email: profile.email,
+        reason: "welcome_email_resend",
+      },
+    });
+
+    if (auditError) {
+      console.error("Error logging to audit trail:", auditError);
+      // Continue despite audit log error
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error resending welcome email:", error);
+    return false;
+  }
+}

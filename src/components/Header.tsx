@@ -36,7 +36,7 @@ export default function Header() {
     // Set active tab based on current path
     const path = location.pathname;
     if (path.includes("/admin")) {
-      setActiveTab("admin");
+      setActiveTab("dashboard"); // Change from "admin" to "dashboard"
       setIsAdminSection(true);
     } else if (path.includes("/about")) setActiveTab("about");
     else if (path.includes("/loans")) setActiveTab("loans");
@@ -98,10 +98,10 @@ export default function Header() {
           <div className="flex items-center justify-between">
             {/* Logo and brand */}
             <Link
-              to="/"
+              to={isAdmin ? "/admin" : "/"} // Redirect admin users to admin dashboard from logo
               className="flex items-center group relative overflow-hidden rounded-xl"
               onClick={() => {
-                setActiveTab("home");
+                setActiveTab(isAdmin && isAdminSection ? "dashboard" : "home"); // Set active tab based on user role
                 closeAllMenus();
               }}
             >
@@ -110,7 +110,7 @@ export default function Header() {
               <div className="relative flex items-center">
                 <div className="relative overflow-hidden rounded-lg transition-all duration-300 group-hover:scale-105 group-hover:rotate-1">
                   <img
-                    src="http://nawec.gm/wp-content/uploads/2020/01/NAWEC.png"
+                    src="https://storage.googleapis.com/zaibai/nawec%20logo%201.png"
                     alt="NAWEC Logo"
                     className={`${
                       scrolled || isAdminSection ? "h-8" : "h-12"
@@ -130,12 +130,12 @@ export default function Header() {
                     NAWEC
                   </h1>
                   <p
-                    className={`text-xs md:text-sm text-gray-600 tracking-wider font-medium ${
+                    className={`text-xs md:text-sm text-gray-600 tracking-wider font-medium uppercase ${
                       scrolled && "text-xs"
                     } transition-all duration-300`}
                   >
-                    Credit Union{" "}
-                    <span className="hidden sm:inline">
+                    CO-OPERATIVE CREDIT UNION{" "}
+                    <span className="hidden sm:inline lowercase">
                       • Empowering Futures
                     </span>
                   </p>
@@ -157,30 +157,34 @@ export default function Header() {
             <div className="hidden md:flex md:items-center md:space-x-6">
               {/* Navigation Links */}
               <nav className="flex items-center space-x-1 mr-4">
-                <Link
-                  to="/"
-                  onClick={() => {
-                    setActiveTab("home");
-                    closeAllMenus();
-                  }}
-                  className={`
-                    px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative
-                    ${
-                      activeTab === "home"
-                        ? "text-primary-700 bg-primary-50"
-                        : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
-                    }
-                  `}
-                >
-                  Home
-                  {activeTab === "home" && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
-                  )}
-                </Link>
+                {/* Show Home tab only for non-admin users or when not in admin section */}
+                {(!isAdmin || !isAdminSection) && (
+                  <Link
+                    to="/"
+                    onClick={() => {
+                      setActiveTab("home");
+                      closeAllMenus();
+                    }}
+                    className={`
+                      px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative
+                      ${
+                        activeTab === "home"
+                          ? "text-primary-700 bg-primary-50"
+                          : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
+                      }
+                    `}
+                  >
+                    Home
+                    {activeTab === "home" && (
+                      <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
+                    )}
+                  </Link>
+                )}
 
+                {/* Dashboard tab for both admin and regular users */}
                 {profile && (
                   <Link
-                    to="/dashboard"
+                    to={isAdmin && isAdminSection ? "/admin" : "/dashboard"}
                     onClick={() => {
                       setActiveTab("dashboard");
                       closeAllMenus();
@@ -195,14 +199,25 @@ export default function Header() {
                     `}
                   >
                     <span className="relative z-10 flex items-center">
-                      <BarChart3
-                        size={15}
-                        className={`mr-1 ${
-                          activeTab === "dashboard"
-                            ? "text-primary-500"
-                            : "text-gray-400 group-hover:text-primary-500"
-                        } transition-colors`}
-                      />
+                      {isAdmin && isAdminSection ? (
+                        <Shield
+                          size={15}
+                          className={`mr-1 ${
+                            activeTab === "dashboard"
+                              ? "text-primary-500"
+                              : "text-gray-400 group-hover:text-primary-500"
+                          } transition-colors`}
+                        />
+                      ) : (
+                        <BarChart3
+                          size={15}
+                          className={`mr-1 ${
+                            activeTab === "dashboard"
+                              ? "text-primary-500"
+                              : "text-gray-400 group-hover:text-primary-500"
+                          } transition-colors`}
+                        />
+                      )}
                       Dashboard
                     </span>
                     {activeTab === "dashboard" && (
@@ -211,127 +226,105 @@ export default function Header() {
                   </Link>
                 )}
 
-                {/* Admin menu item - only shown if user is admin */}
-                {isAdmin && (
-                  <Link
-                    to="/admin"
-                    onClick={() => {
-                      setActiveTab("admin");
-                      closeAllMenus();
-                    }}
-                    className={`
-                      px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative group
-                      ${
-                        activeTab === "admin"
-                          ? "text-primary-700 bg-primary-50"
-                          : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
-                      }
-                    `}
-                  >
-                    <span className="relative z-10 flex items-center">
-                      <Shield
-                        size={15}
-                        className={`mr-1 ${
-                          activeTab === "admin"
-                            ? "text-primary-500"
-                            : "text-gray-400 group-hover:text-primary-500"
-                        } transition-colors`}
-                      />
-                      Admin
-                    </span>
-                    {activeTab === "admin" && (
-                      <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
-                    )}
-                  </Link>
-                )}
+                {/* Admin menu item removed - now using a single Dashboard tab */}
 
-                <Link
-                  to="/about"
-                  onClick={() => {
-                    setActiveTab("about");
-                    closeAllMenus();
-                  }}
-                  className={`
-                    px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative group
-                    ${
-                      activeTab === "about"
-                        ? "text-primary-700 bg-primary-50"
-                        : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
-                    }
-                  `}
-                >
-                  <span className="relative z-10 flex items-center">
-                    <Info
-                      size={15}
-                      className={`mr-1 ${
-                        activeTab === "about"
-                          ? "text-primary-500"
-                          : "text-gray-400 group-hover:text-primary-500"
-                      } transition-colors`}
-                    />
-                    About
-                  </span>
-                  {activeTab === "about" && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
-                  )}
-                </Link>
-
-                <Link
-                  to="/loans"
-                  onClick={() => {
-                    setActiveTab("loans");
-                    closeAllMenus();
-                  }}
-                  className={`
-                    px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative group
-                    ${
-                      activeTab === "loans"
-                        ? "text-primary-700 bg-primary-50"
-                        : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
-                    }
-                  `}
-                >
-                  <span className="relative z-10 flex items-center">
-                    <CreditCard
-                      size={15}
-                      className={`mr-1 ${
-                        activeTab === "loans"
-                          ? "text-primary-500"
-                          : "text-gray-400 group-hover:text-primary-500"
-                      } transition-colors`}
-                    />
-                    <span className="relative">
-                      Loans
-                      <span className="absolute -top-1 -right-2 flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-500"></span>
+                {/* Only show About and Loans links when not in admin section */}
+                {(!isAdmin || !isAdminSection) && (
+                  <>
+                    <Link
+                      to="/about"
+                      onClick={() => {
+                        setActiveTab("about");
+                        closeAllMenus();
+                      }}
+                      className={`
+                        px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative group
+                        ${
+                          activeTab === "about"
+                            ? "text-primary-700 bg-primary-50"
+                            : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
+                        }
+                      `}
+                    >
+                      <span className="relative z-10 flex items-center">
+                        <Info
+                          size={15}
+                          className={`mr-1 ${
+                            activeTab === "about"
+                              ? "text-primary-500"
+                              : "text-gray-400 group-hover:text-primary-500"
+                          } transition-colors`}
+                        />
+                        About
                       </span>
-                    </span>
-                  </span>
-                  {activeTab === "loans" && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
-                  )}
-                </Link>
+                      {activeTab === "about" && (
+                        <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
+                      )}
+                    </Link>
+
+                    {/* Hide Loans link for admin users */}
+                    {!isAdmin && (
+                      <Link
+                        to="/loans"
+                        onClick={() => {
+                          setActiveTab("loans");
+                          closeAllMenus();
+                        }}
+                        className={`
+                          px-3 py-1.5 rounded-lg transition-all duration-300 font-medium relative group
+                          ${
+                            activeTab === "loans"
+                              ? "text-primary-700 bg-primary-50"
+                              : "text-gray-600 hover:text-primary-600 hover:bg-primary-50/50"
+                          }
+                        `}
+                      >
+                        <span className="relative z-10 flex items-center">
+                          <CreditCard
+                            size={15}
+                            className={`mr-1 ${
+                              activeTab === "loans"
+                                ? "text-primary-500"
+                                : "text-gray-400 group-hover:text-primary-500"
+                            } transition-colors`}
+                          />
+                          <span className="relative">
+                            Loans
+                            <span className="absolute -top-1 -right-2 flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-500"></span>
+                            </span>
+                          </span>
+                        </span>
+                        {activeTab === "loans" && (
+                          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1/2 h-0.5 bg-primary-500 rounded-full" />
+                        )}
+                      </Link>
+                    )}
+                  </>
+                )}
               </nav>
 
-              {/* Search */}
-              <div className="relative group">
-                <div className="absolute inset-0 bg-primary-100/50 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100" />
-                <div className="relative">
-                  <Search
-                    size={16}
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 transition-colors group-hover:text-primary-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Search resources..."
-                    className="w-56 pl-9 pr-4 py-1.5 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-transparent bg-white/80 backdrop-blur-sm text-sm transition-all duration-300 placeholder:text-gray-400"
-                  />
+              {/* Search - only show when not in admin section */}
+              {(!isAdmin || !isAdminSection) && (
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-primary-100/50 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100" />
+                  <div className="relative">
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 transition-colors group-hover:text-primary-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search resources..."
+                      className="w-56 pl-9 pr-4 py-1.5 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-transparent bg-white/80 backdrop-blur-sm text-sm transition-all duration-300 placeholder:text-gray-400"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Notifications */}
-              {profile && (
+              {profile && (!isAdmin || !isAdminSection) && (
                 <button className="relative p-2 text-gray-600 hover:text-primary-600 rounded-full transition-all duration-300 hover:bg-primary-50 group">
                   <Bell
                     size={18}
@@ -350,6 +343,11 @@ export default function Header() {
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
                     className="flex items-center space-x-2 p-1.5 rounded-xl hover:bg-primary-50 transition-all duration-300 group"
                   >
+                    <img
+                      src="https://storage.googleapis.com/zaibai/Nawec%20logo%202.webp"
+                      alt="NAWEC Coop Symbol"
+                      className="w-10 h-10 mr-1 object-contain"
+                    />
                     <div
                       className={`w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white shadow-md shadow-primary-500/20 transition-transform duration-300 group-hover:scale-105 overflow-hidden ${
                         scrolled ? "w-7 h-7" : ""
@@ -360,14 +358,6 @@ export default function Header() {
                       ) : (
                         <User size={16} className="text-white" />
                       )}
-                    </div>
-                    <div className="hidden lg:block text-left">
-                      <p className="text-sm font-medium text-gray-900 line-clamp-1">
-                        {profile?.full_name || "Guest User"}
-                      </p>
-                      <p className="text-xs text-gray-500 line-clamp-1">
-                        {profile?.email || "Sign in to access account"}
-                      </p>
                     </div>
                     <ChevronRight
                       size={16}
@@ -392,10 +382,14 @@ export default function Header() {
                           </div>
                           <div className="ml-4">
                             <p className="text-sm font-medium text-gray-900">
-                              {profile?.full_name || "Guest User"}
+                              {profile?.full_name
+                                ? profile.full_name
+                                : "Guest User"}
                             </p>
                             <p className="text-xs text-gray-500">
-                              {profile?.email || "Sign in to access account"}
+                              {profile?.email
+                                ? profile.email
+                                : "Sign in to access account"}
                             </p>
                             <div className="mt-1.5">
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800">
@@ -407,31 +401,32 @@ export default function Header() {
                       </div>
 
                       <div className="py-2">
+                        {/* Link to appropriate dashboard based on user role */}
                         <Link
-                          to="/dashboard"
+                          to={
+                            isAdmin && isAdminSection ? "/admin" : "/dashboard"
+                          }
                           className="group flex items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-primary-50 transition-colors"
                           onClick={closeAllMenus}
                         >
-                          <BarChart3
-                            size={16}
-                            className="mr-3 text-gray-400 group-hover:text-primary-500"
-                          />
-                          Dashboard
+                          {isAdmin && isAdminSection ? (
+                            <>
+                              <Shield
+                                size={16}
+                                className="mr-3 text-gray-400 group-hover:text-primary-500"
+                              />
+                              Admin Dashboard
+                            </>
+                          ) : (
+                            <>
+                              <BarChart3
+                                size={16}
+                                className="mr-3 text-gray-400 group-hover:text-primary-500"
+                              />
+                              Dashboard
+                            </>
+                          )}
                         </Link>
-
-                        {isAdmin && (
-                          <Link
-                            to="/admin"
-                            className="group flex items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-primary-50 transition-colors"
-                            onClick={closeAllMenus}
-                          >
-                            <Shield
-                              size={16}
-                              className="mr-3 text-gray-400 group-hover:text-primary-500"
-                            />
-                            Admin Panel
-                          </Link>
-                        )}
 
                         <Link
                           to="/settings"
@@ -487,27 +482,31 @@ export default function Header() {
           {isMobileMenuOpen && (
             <div className="md:hidden mt-4 py-4 bg-white rounded-xl shadow-lg animate-fade-in-down">
               <nav className="flex flex-col space-y-1.5 px-3">
-                <Link
-                  to="/"
-                  className={`
-                    flex items-center px-4 py-3 rounded-lg transition-all duration-200
-                    ${
-                      activeTab === "home"
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-gray-700 hover:bg-gray-50"
-                    }
-                  `}
-                  onClick={() => {
-                    setActiveTab("home");
-                    closeAllMenus();
-                  }}
-                >
-                  Home
-                </Link>
+                {/* Show Home link only when not in admin section */}
+                {(!isAdmin || !isAdminSection) && (
+                  <Link
+                    to="/"
+                    className={`
+                      flex items-center px-4 py-3 rounded-lg transition-all duration-200
+                      ${
+                        activeTab === "home"
+                          ? "bg-primary-50 text-primary-700"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }
+                    `}
+                    onClick={() => {
+                      setActiveTab("home");
+                      closeAllMenus();
+                    }}
+                  >
+                    Home
+                  </Link>
+                )}
 
+                {/* Dashboard link for all authenticated users */}
                 {profile && (
                   <Link
-                    to="/dashboard"
+                    to={isAdmin && isAdminSection ? "/admin" : "/dashboard"}
                     className={`
                       flex items-center px-4 py-3 rounded-lg transition-all duration-200
                       ${
@@ -521,86 +520,84 @@ export default function Header() {
                       closeAllMenus();
                     }}
                   >
-                    <BarChart3 size={16} className="mr-2 text-gray-400" />
-                    Dashboard
+                    {isAdmin && isAdminSection ? (
+                      <>
+                        <Shield size={16} className="mr-2 text-gray-400" />
+                        Dashboard
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 size={16} className="mr-2 text-gray-400" />
+                        Dashboard
+                      </>
+                    )}
                   </Link>
                 )}
 
-                {/* Admin menu item in mobile - only for admins */}
-                {isAdmin && (
+                {/* Admin menu item removed - now using a single Dashboard tab */}
+
+                {/* Show About link only when not in admin section */}
+                {(!isAdmin || !isAdminSection) && (
                   <Link
-                    to="/admin"
+                    to="/about"
                     className={`
                       flex items-center px-4 py-3 rounded-lg transition-all duration-200
                       ${
-                        activeTab === "admin"
+                        activeTab === "about"
                           ? "bg-primary-50 text-primary-700"
                           : "text-gray-700 hover:bg-gray-50"
                       }
                     `}
                     onClick={() => {
-                      setActiveTab("admin");
+                      setActiveTab("about");
                       closeAllMenus();
                     }}
                   >
-                    <Shield size={16} className="mr-2 text-gray-400" />
-                    Admin
+                    <Info size={16} className="mr-2 text-gray-400" />
+                    About
                   </Link>
                 )}
 
-                <Link
-                  to="/about"
-                  className={`
-                    flex items-center px-4 py-3 rounded-lg transition-all duration-200
-                    ${
-                      activeTab === "about"
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-gray-700 hover:bg-gray-50"
-                    }
-                  `}
-                  onClick={() => {
-                    setActiveTab("about");
-                    closeAllMenus();
-                  }}
-                >
-                  <Info size={16} className="mr-2 text-gray-400" />
-                  About
-                </Link>
-
-                <Link
-                  to="/loans"
-                  className={`
-                    flex items-center px-4 py-3 rounded-lg transition-all duration-200
-                    ${
-                      activeTab === "loans"
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-gray-700 hover:bg-gray-50"
-                    }
-                  `}
-                  onClick={() => {
-                    setActiveTab("loans");
-                    closeAllMenus();
-                  }}
-                >
-                  <CreditCard size={16} className="mr-2 text-gray-400" />
-                  Loans
-                </Link>
+                {/* Hide Loans link for admin users */}
+                {!isAdmin && (!isAdmin || !isAdminSection) && (
+                  <Link
+                    to="/loans"
+                    className={`
+                      flex items-center px-4 py-3 rounded-lg transition-all duration-200
+                      ${
+                        activeTab === "loans"
+                          ? "bg-primary-50 text-primary-700"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }
+                    `}
+                    onClick={() => {
+                      setActiveTab("loans");
+                      closeAllMenus();
+                    }}
+                  >
+                    <CreditCard size={16} className="mr-2 text-gray-400" />
+                    Loans
+                  </Link>
+                )}
               </nav>
 
               <div className="mt-4 pt-4 border-t border-gray-100">
-                <div className="px-4 py-2">
-                  <div className="relative">
-                    <Search
-                      size={18}
-                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                    />
+                {/* Show search only when not in admin section */}
+                {(!isAdmin || !isAdminSection) && (
+                  <div className="px-4 py-2">
+                    <div className="relative">
+                      <Search
+                        size={18}
+                        className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Search..."
+                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {profile ? (
                   <>
@@ -615,10 +612,12 @@ export default function Header() {
                         </div>
                         <div className="ml-3">
                           <p className="text-sm font-medium text-gray-900">
-                            {profile?.full_name || "Guest User"}
+                            {profile?.full_name
+                              ? profile.full_name
+                              : "Guest User"}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {profile?.email || "Sign in"}
+                            {profile?.email ? profile.email : "Sign in"}
                           </p>
                         </div>
                       </div>
