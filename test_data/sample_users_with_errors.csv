@@ -1,0 +1,10 @@
+Full Name,Email Address,Initial Balance,User Role,Account Status
+,john.incomplete@example.com,5000,regular,active
+Jane Duplicate,jane.duplicate@example.com,7500,regular,active
+Jane Duplicate,jane.duplicate@example.com,3000,regular,active
+Admin User,not-an-email-address,1000,admin,active
+New Member,new.member@example.com,-50,regular,active
+Inactive User,inactive@example.com,250,invalid-role,inactive
+,,,
+Rich Person,rich.person@example.com,25000,regular,unknown-status
+Tech Support,support@example.com,five hundred,admin,active

@@ -10,9 +10,11 @@
     "preview": "vite preview --port 4173 --host"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.2",
     "@supabase/supabase-js": "^2.39.3",
     "chart.js": "^4.4.1",
     "date-fns": "^3.3.1",
+    "dotenv": "^16.5.0",
     "framer-motion": "^12.9.4",
     "lodash": "^4.17.21",
     "lucide-react": "^0.330.0",

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import {
-  CircleDollarSign,
   Search,
   FileText,
   CheckCircle,
@@ -13,6 +12,7 @@ import {
   BarChart,
   BadgeDollarSign,
   AlertCircle,
+  Coins,
 } from "lucide-react";
 
 interface Loan {
@@ -215,10 +215,15 @@ export default function AdminTransactions() {
 
   // Helper functions
   const formatCurrency = (amount: number) => {
-    return `D${amount.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    // Format the number with 2 decimal places without any currency symbol
+    const formattedNumber = amount.toFixed(2);
+
+    // Add thousand separators
+    const parts = formattedNumber.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+    // Add the D symbol prefix
+    return `D${parts.join(".")}`;
   };
 
   const formatDate = (dateString: string) => {
@@ -303,7 +308,7 @@ export default function AdminTransactions() {
               onClick={() => setActiveTab("transactions")}
             >
               <div className="flex items-center">
-                <CircleDollarSign className="w-5 h-5 mr-2" />
+                <Coins className="w-5 h-5 mr-2" />
                 <span className="font-medium">Transactions</span>
               </div>
             </button>

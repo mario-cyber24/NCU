@@ -11,6 +11,8 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Deposit from "./pages/Deposit";
 import Loans from "./pages/Loans";
+import Activity from "./pages/Activity";
+import Analytics from "./pages/Analytics";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminTransactions from "./pages/admin/AdminTransactions";
@@ -111,6 +113,8 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/deposit" element={<Deposit />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/activity" element={<Activity />} />
         </Route>
 
         {/* Admin Routes */}

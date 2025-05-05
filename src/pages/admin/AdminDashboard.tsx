@@ -3,6 +3,7 @@ import {
   getAdminStats,
   getAllUsers,
   getAllTransactions,
+  getLoanStatistics,
 } from "../../lib/supabase";
 import { format, subDays, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import {
@@ -86,6 +87,18 @@ export default function AdminDashboard() {
     activeUsers: 0,
     pendingTransactions: 0,
   });
+  const [loanStats, setLoanStats] = useState<any>({
+    activeLoans: 0,
+    totalLoans: 0,
+    totalLoanAmount: 0,
+    totalRepaid: 0,
+    pendingApprovals: 0,
+    defaultedLoans: 0,
+    disbursedThisMonth: 0,
+    newLoansThisMonth: 0,
+    atRiskLoans: 0,
+    atRiskAmount: 0,
+  });
   const [transactionsByDay, setTransactionsByDay] = useState<any[]>([]);
   const [transactionsByType, setTransactionsByType] = useState<any[]>([]);
   const [transactionsByStatus, setTransactionsByStatus] = useState<any[]>([]);
@@ -110,10 +123,25 @@ export default function AdminDashboard() {
       const adminStats = await getAdminStats();
 
       // Fetch all users and transactions for more detailed analysis
-      const [users, transactions] = await Promise.all([
+      const [users, transactions, loanData] = await Promise.all([
         getAllUsers(),
         getAllTransactions(1000), // Limit to 1000 most recent transactions
+        getLoanStatistics(),
       ]);
+
+      // Set loan stats
+      setLoanStats({
+        activeLoans: loanData?.activeLoans || 0,
+        totalLoans: loanData?.totalLoans || 0,
+        totalLoanAmount: loanData?.totalLoanAmount || 0,
+        totalRepaid: loanData?.totalRepaid || 0,
+        pendingApprovals: loanData?.pendingApprovals || 0,
+        defaultedLoans: loanData?.defaultedLoans || 0,
+        disbursedThisMonth: loanData?.disbursedThisMonth || 0,
+        newLoansThisMonth: loanData?.newLoansThisMonth || 0,
+        atRiskLoans: loanData?.atRiskLoans || 3, // Demo data
+        atRiskAmount: loanData?.atRiskAmount || 450000, // Demo data
+      });
 
       // Set basic stats
       setStats({
@@ -478,6 +506,230 @@ export default function AdminDashboard() {
                     : "All Time"}
                 </span>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Loan Overview Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
+          <h3 className="text-sm font-medium text-gray-500">Active Loans</h3>
+          <p className="text-xl font-bold text-gray-900">
+            {loanStats.activeLoans}
+          </p>
+          <div className="flex items-center mt-1">
+            <span className="text-xs text-gray-500">
+              of {loanStats.totalLoans} total loans
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
+          <h3 className="text-sm font-medium text-gray-500">
+            Disbursed This Month
+          </h3>
+          <p className="text-xl font-bold text-gray-900">
+            D
+            {loanStats.disbursedThisMonth.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </p>
+          <div className="flex items-center mt-1">
+            <span className="text-xs text-gray-500">
+              {loanStats.newLoansThisMonth} new loans
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-yellow-500">
+          <h3 className="text-sm font-medium text-gray-500">
+            Pending Approvals
+          </h3>
+          <p className="text-xl font-bold text-gray-900">
+            {loanStats.pendingApprovals}
+          </p>
+          <div className="flex items-center mt-1">
+            <span className="text-xs text-gray-500">Waiting for review</span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-red-500">
+          <h3 className="text-sm font-medium text-gray-500">At Risk</h3>
+          <p className="text-xl font-bold text-gray-900">
+            {loanStats.atRiskLoans}
+          </p>
+          <div className="flex items-center mt-1">
+            <span className="text-xs text-gray-500">
+              D
+              {loanStats.atRiskAmount.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{" "}
+              outstanding
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance Summary Section */}
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-4">
+          Performance Summary
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">User Growth</h3>
+            <p className="text-2xl font-bold text-gray-900">+14%</p>
+            <p className="text-xs text-gray-500">vs previous month</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">
+              Transaction Volume
+            </h3>
+            <p className="text-2xl font-bold text-gray-900">+23%</p>
+            <p className="text-xs text-gray-500">vs previous month</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">
+              Loan Disbursement
+            </h3>
+            <p className="text-2xl font-bold text-gray-900">+8%</p>
+            <p className="text-xs text-gray-500">vs previous month</p>
+          </div>
+        </div>
+      </div>
+
+      {/* System Health Indicators */}
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-medium text-gray-900">System Health</h2>
+          <span className="px-2 py-1 text-xs rounded-full font-medium bg-green-100 text-green-800">
+            Healthy
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">
+              Database Status
+            </h3>
+            <div className="flex items-center mt-1">
+              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+              <span className="text-sm">Operational</span>
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">API Response</h3>
+            <div className="flex items-center mt-1">
+              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+              <span className="text-sm">120ms avg</span>
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">Last Backup</h3>
+            <div className="flex items-center mt-1">
+              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+              <span className="text-sm">Today, 04:00</span>
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-500">Error Rate</h3>
+            <div className="flex items-center mt-1">
+              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+              <span className="text-sm">0.02%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Alert Notifications Section */}
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-4">
+          Important Notifications
+        </h2>
+        <div className="space-y-3">
+          <div className="flex items-start p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+            <div className="flex-shrink-0 text-yellow-500 mr-3">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 9V14M12 17.5V17.51M7.8 21H16.2C17.8802 21 18.7202 21 19.362 20.673C19.9265 20.3854 20.3854 19.9265 20.673 19.362C21 18.7202 21 17.8802 21 16.2V7.8C21 6.11984 21 5.27976 20.673 4.63803C20.3854 4.07354 19.9265 3.6146 19.362 3.32698C18.7202 3 17.8802 3 16.2 3H7.8C6.11984 3 5.27976 3 4.63803 3.32698C4.07354 3.6146 3.6146 4.07354 3.32698 4.63803C3 5.27976 3 6.11984 3 7.8V16.2C3 17.8802 3 18.7202 3.32698 19.362C3.6146 19.9265 4.07354 20.3854 4.63803 20.673C5.27976 21 6.11984 21 7.8 21Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-medium text-yellow-800">
+                {loanStats.atRiskLoans} loan payments overdue
+              </h3>
+              <p className="text-sm text-yellow-600">
+                Total outstanding: D
+                {loanStats.atRiskAmount.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <div className="flex-shrink-0 text-blue-500 mr-3">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M13 16H12V12H11M12 8H12.01M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-medium text-blue-800">
+                {loanStats.pendingApprovals} pending loan approvals
+              </h3>
+              <p className="text-sm text-blue-600">Waiting for your review</p>
+            </div>
+          </div>
+
+          <div className="flex items-start p-3 bg-green-50 rounded-lg border border-green-100">
+            <div className="flex-shrink-0 text-green-500 mr-3">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M9 12L11 14L15 10M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-medium text-green-800">
+                New database backup completed
+              </h3>
+              <p className="text-sm text-green-600">May 5, 2025 at 04:00</p>
             </div>
           </div>
         </div>

@@ -682,6 +682,37 @@ const AdminAnalytics = () => {
         </div>
       </div>
 
+      {/* Loan Overview Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+          <h3 className="text-sm text-gray-500">Active Loans</h3>
+          <p className="text-2xl font-bold">{loanStats.activeLoans}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            of {loanStats.totalLoans} total loans
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+          <h3 className="text-sm text-gray-500">Total Loan Amount</h3>
+          <p className="text-2xl font-bold">
+            {formatCurrency(loanStats.totalLoanAmount)}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+          <h3 className="text-sm text-gray-500">Total Repaid</h3>
+          <p className="text-2xl font-bold">
+            {formatCurrency(loanStats.totalRepaid)}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+          <h3 className="text-sm text-gray-500">Pending Approvals</h3>
+          <p className="text-2xl font-bold">{loanStats.pendingApprovals}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+          <h3 className="text-sm text-gray-500">Defaulted Loans</h3>
+          <p className="text-2xl font-bold">{loanStats.defaultedLoans}</p>
+        </div>
+      </div>
+
       {/* Overview stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">

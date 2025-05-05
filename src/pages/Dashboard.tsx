@@ -12,7 +12,20 @@ import StatCard from "../components/ui/StatCard";
 import LoanApplicationForm from "../components/ui/LoanApplicationForm";
 import LoanPaymentForm from "../components/ui/LoanPaymentForm";
 import { toast } from "react-hot-toast";
-import { format } from "date-fns";
+import { format, parseISO, subMonths, startOfMonth } from "date-fns";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 import {
   Wallet,
   TrendingUp,
@@ -31,10 +44,18 @@ import {
   FileText,
   CheckCircle2,
   XCircle,
-  BarChart,
+  BarChart as BarChartIcon,
   PiggyBank,
   Loader2,
   ArrowRight,
+  Calendar,
+  CreditCard as CreditCardIcon,
+  Coins,
+  ArrowDownLeft,
+  Info,
+  BellRing,
+  Users,
+  HelpCircle,
 } from "lucide-react";
 
 interface Loan {
@@ -68,11 +89,31 @@ export default function Dashboard() {
   const [showLoanForm, setShowLoanForm] = useState(action === "apply-loan");
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [spendingByCategory, setSpendingByCategory] = useState<any[]>([]);
+  const [savingsRate, setSavingsRate] = useState(0);
   const currentMonth = format(new Date(), "MMMM");
 
   useEffect(() => {
     fetchDashboardData();
   }, [user]);
+
+  // Process spending by category data
+  useEffect(() => {
+    if (monthlyTransactions.length > 0) {
+      // Process spending by category
+      const categories = processTransactionsByCategory(monthlyTransactions);
+      setSpendingByCategory(categories);
+
+      // Calculate savings rate
+      if (monthlyIncome > 0) {
+        const savingsPercent = Math.max(
+          0,
+          ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100
+        );
+        setSavingsRate(parseFloat(savingsPercent.toFixed(1)));
+      }
+    }
+  }, [monthlyTransactions]);
 
   const fetchDashboardData = async () => {
     if (!user?.id) return;
@@ -153,6 +194,54 @@ export default function Dashboard() {
     .filter((t) => t.type === "withdrawal")
     .reduce((sum, t) => sum + t.amount, 0);
 
+  // Process transactions by category for visualization
+  const processTransactionsByCategory = (transactions: any[]) => {
+    const withdrawals = transactions.filter((tx) => tx.type === "withdrawal");
+
+    // Sample categorization logic (in a real app, categories would be stored in the database)
+    const categorized = withdrawals.reduce((acc: any, tx: any) => {
+      let category = "Other";
+
+      // Simple categorization based on description keywords
+      const desc = (tx.description || "").toLowerCase();
+      if (desc.includes("bill") || desc.includes("utility")) category = "Bills";
+      else if (
+        desc.includes("food") ||
+        desc.includes("grocery") ||
+        desc.includes("restaurant")
+      )
+        category = "Food";
+      else if (
+        desc.includes("transport") ||
+        desc.includes("fuel") ||
+        desc.includes("taxi")
+      )
+        category = "Transport";
+      else if (desc.includes("loan") || desc.includes("payment"))
+        category = "Loan Payment";
+      else if (desc.includes("shopping")) category = "Shopping";
+
+      if (!acc[category]) acc[category] = 0;
+      acc[category] += tx.amount;
+      return acc;
+    }, {});
+
+    // Convert to array format for charts
+    const COLORS = [
+      "#0088FE",
+      "#00C49F",
+      "#FFBB28",
+      "#FF8042",
+      "#8884d8",
+      "#82ca9d",
+    ];
+    return Object.entries(categorized).map(([name, value], index) => ({
+      name,
+      value,
+      color: COLORS[index % COLORS.length],
+    }));
+  };
+
   // Navigation handlers for action buttons
   const handleDepositClick = () => navigate("/deposit");
   const handleTransferClick = () => navigate("/transfer");
@@ -202,7 +291,7 @@ export default function Dashboard() {
       },
       active: {
         color: "bg-blue-100 text-blue-800 border-blue-200",
-        icon: <BarChart className="w-4 h-4 mr-1" />,
+        icon: <BarChartIcon className="w-4 h-4 mr-1" />,
       },
       rejected: {
         color: "bg-red-100 text-red-800 border-red-200",
@@ -244,6 +333,36 @@ export default function Dashboard() {
     })
       .format(amount)
       .replace(/^/, "D");
+  };
+
+  // Custom pie chart label
+  const CustomizedLabel = ({
+    cx,
+    cy,
+    midAngle,
+    innerRadius,
+    outerRadius,
+    percent,
+    index,
+    name,
+  }: any) => {
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="white"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+        className="text-xs"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
   };
 
   return (
@@ -561,6 +680,419 @@ export default function Dashboard() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* New Section - Spending Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        {/* Spending Breakdown Chart */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900 flex items-center">
+              <PieChart className="h-5 w-5 mr-2 text-primary-500" />
+              Monthly Spending Breakdown
+            </h3>
+            <span className="text-sm text-gray-500">{currentMonth}</span>
+          </div>
+
+          <div className="h-64">
+            {spendingByCategory.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={spendingByCategory}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={CustomizedLabel}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {spendingByCategory.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value) => formatCurrency(Number(value))}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">
+                  No spending data available for this month
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Financial Insights */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center mb-4">
+            <BarChartIcon className="h-5 w-5 mr-2 text-primary-500" />
+            Financial Insights
+          </h3>
+
+          <div className="space-y-4">
+            {/* Savings Rate */}
+            <div className="rounded-lg bg-gradient-to-r from-blue-50 to-teal-50 p-4 border border-blue-100">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-sm font-medium text-gray-700 flex items-center">
+                  <PiggyBank className="h-4 w-4 mr-1.5 text-blue-500" />
+                  Savings Rate
+                </h4>
+                <span className="text-lg font-bold text-blue-700">
+                  {savingsRate}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full"
+                  style={{ width: `${Math.min(100, savingsRate)}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                {savingsRate >= 20
+                  ? "Excellent savings rate! Keep it up!"
+                  : savingsRate >= 10
+                  ? "Good savings rate. Consider increasing if possible."
+                  : "Try to increase your savings rate to at least 10%."}
+              </p>
+            </div>
+
+            {/* Largest Expense */}
+            {spendingByCategory.length > 0 && (
+              <div className="rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 p-4 border border-amber-100">
+                <h4 className="text-sm font-medium text-gray-700 flex items-center mb-2">
+                  <ArrowDownRight className="h-4 w-4 mr-1.5 text-amber-500" />
+                  Largest Monthly Expense
+                </h4>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-800">
+                    {
+                      [...spendingByCategory].sort(
+                        (a, b) => Number(b.value) - Number(a.value)
+                      )[0]?.name
+                    }
+                  </span>
+                  <span className="font-bold text-gray-800">
+                    {formatCurrency(
+                      Number(
+                        [...spendingByCategory].sort(
+                          (a, b) => Number(b.value) - Number(a.value)
+                        )[0]?.value || 0
+                      )
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Monthly Balance */}
+            <div className="rounded-lg bg-gradient-to-r from-green-50 to-emerald-50 p-4 border border-green-100">
+              <h4 className="text-sm font-medium text-gray-700 flex items-center mb-2">
+                <Calendar className="h-4 w-4 mr-1.5 text-green-500" />
+                Monthly Balance
+              </h4>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-800">Net Cash Flow</span>
+                <span
+                  className={`font-bold ${
+                    monthlyIncome - monthlyExpenses >= 0
+                      ? "text-green-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  {formatCurrency(monthlyIncome - monthlyExpenses)}
+                </span>
+              </div>
+            </div>
+
+            {/* Financial Tips */}
+            <div className="rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 p-4 border border-indigo-100">
+              <h4 className="text-sm font-medium text-gray-700 flex items-center mb-2">
+                <HelpCircle className="h-4 w-4 mr-1.5 text-indigo-500" />
+                Financial Tip
+              </h4>
+              <p className="text-xs text-gray-800">
+                {savingsRate < 10
+                  ? "Try the 50/30/20 rule: 50% on needs, 30% on wants, and 20% on savings and debt repayment."
+                  : monthlyExpenses > monthlyIncome
+                  ? "You're spending more than you earn. Review your expenses to find areas to cut back."
+                  : "Consider setting up automatic transfers to a savings account on payday to build your emergency fund."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Savings Goal Tracker */}
+      <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center">
+            <Coins className="h-5 w-5 mr-2 text-primary-500" />
+            Savings Goal Tracker
+          </h3>
+          <button className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center">
+            <Plus className="h-4 w-4 mr-1" />
+            Set Goal
+          </button>
+        </div>
+
+        <div className="bg-gradient-to-r from-primary-50 to-primary-100 rounded-lg p-5 relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
+            <div>
+              <h4 className="font-medium text-gray-800">Emergency Fund</h4>
+              <p className="text-sm text-gray-600 mt-1">3 months of expenses</p>
+            </div>
+            <div className="mt-2 sm:mt-0">
+              <span className="text-lg font-bold text-gray-800">
+                {formatCurrency(20000)}
+              </span>
+              <span className="text-sm text-gray-600 ml-1">
+                / {formatCurrency(60000)}
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full bg-white/50 rounded-full h-3 mb-2">
+            <div
+              className="bg-primary-600 h-3 rounded-full"
+              style={{ width: "33%" }}
+            ></div>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-600">33% complete</span>
+            <span className="text-xs text-gray-600">Target: Dec 2025</span>
+          </div>
+
+          <div className="absolute top-0 right-0 -mt-2 -mr-2">
+            <div className="bg-primary-600/10 p-1 rounded-full">
+              <Coins className="h-8 w-8 text-primary-600/50" />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <h5 className="text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <CreditCardIcon className="h-4 w-4 mr-1.5 text-purple-500" />
+              Vacation Fund
+            </h5>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-800 text-sm">
+                {formatCurrency(5000)} / {formatCurrency(15000)}
+              </span>
+              <span className="text-xs font-medium text-gray-600">33%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+              <div
+                className="bg-purple-500 h-1.5 rounded-full"
+                style={{ width: "33%" }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <h5 className="text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <Users className="h-4 w-4 mr-1.5 text-blue-500" />
+              Education Fund
+            </h5>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-800 text-sm">
+                {formatCurrency(12000)} / {formatCurrency(30000)}
+              </span>
+              <span className="text-xs font-medium text-gray-600">40%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+              <div
+                className="bg-blue-500 h-1.5 rounded-full"
+                style={{ width: "40%" }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <h5 className="text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <BellRing className="h-4 w-4 mr-1.5 text-amber-500" />
+              New goal
+            </h5>
+            <div className="flex items-center justify-center h-12">
+              <button className="text-primary-600 hover:text-primary-700 text-sm font-medium flex items-center">
+                <Plus className="h-4 w-4 mr-1" />
+                Add new goal
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Notifications and Upcoming Payments */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center mb-4">
+            <Calendar className="h-5 w-5 mr-2 text-primary-500" />
+            Upcoming Payments
+          </h3>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center">
+                <div className="mr-3 p-2 bg-blue-100 rounded-md">
+                  <CreditCardIcon className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-800">
+                    NAWEC Utility Bill
+                  </h4>
+                  <p className="text-xs text-gray-500">Due in 3 days</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-800">
+                  {formatCurrency(1250)}
+                </p>
+                <button className="text-xs text-primary-600 hover:text-primary-700">
+                  Pay now
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center">
+                <div className="mr-3 p-2 bg-green-100 rounded-md">
+                  <CircleDollarSign className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-800">
+                    Loan Payment
+                  </h4>
+                  <p className="text-xs text-gray-500">Due in 7 days</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-800">
+                  {formatCurrency(2500)}
+                </p>
+                <button className="text-xs text-primary-600 hover:text-primary-700">
+                  Schedule
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center">
+                <div className="mr-3 p-2 bg-amber-100 rounded-md">
+                  <FileText className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-800">
+                    Insurance Premium
+                  </h4>
+                  <p className="text-xs text-gray-500">Due in 14 days</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-800">
+                  {formatCurrency(3000)}
+                </p>
+                <button className="text-xs text-primary-600 hover:text-primary-700">
+                  Schedule
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center mb-4">
+            <Info className="h-5 w-5 mr-2 text-primary-500" />
+            Financial Health
+          </h3>
+
+          <div className="flex justify-center items-center mb-6">
+            <div className="relative w-32 h-32">
+              <svg className="w-full h-full" viewBox="0 0 100 100">
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="45"
+                  fill="none"
+                  stroke="#e5e7eb"
+                  strokeWidth="8"
+                />
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="45"
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth="8"
+                  strokeDasharray="282.7"
+                  strokeDashoffset="70.7"
+                  strokeLinecap="round"
+                  transform="rotate(-90 50 50)"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center flex-col">
+                <span className="text-2xl font-bold text-gray-800">75</span>
+                <span className="text-xs text-gray-500">Good</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-medium text-gray-700">
+                  Spending
+                </span>
+                <span className="text-xs font-medium text-gray-700">70%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5">
+                <div
+                  className="bg-green-500 h-1.5 rounded-full"
+                  style={{ width: "70%" }}
+                ></div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-medium text-gray-700">
+                  Savings
+                </span>
+                <span className="text-xs font-medium text-gray-700">65%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full"
+                  style={{ width: "65%" }}
+                ></div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-medium text-gray-700">Debt</span>
+                <span className="text-xs font-medium text-gray-700">90%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5">
+                <div
+                  className="bg-purple-500 h-1.5 rounded-full"
+                  style={{ width: "90%" }}
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          <button className="mt-6 w-full py-2 px-4 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-md transition-colors duration-200">
+            View Full Report
+          </button>
+        </div>
       </div>
     </div>
   );

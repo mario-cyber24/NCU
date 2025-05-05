@@ -92,6 +92,182 @@ export async function addTransaction(transaction: {
 }
 
 /**
+ * Add multiple transactions in bulk and update corresponding account balances
+ * Optimized for reduced database calls and better rate limiting
+ * @param {Array<Object>} transactions - Array of transaction objects
+ * @returns {Promise<{success: number, failed: number, results: Array}>} - Results summary
+ */
+export async function bulkAddTransactions(transactions) {
+  // Initialize results tracking
+  const results = {
+    success: 0,
+    failed: 0,
+    results: [],
+  };
+
+  // More efficient batch processing with larger batches but fewer database calls
+  const BATCH_SIZE = 25; // Increased from 10 to reduce overhead
+  const RATE_LIMIT_DELAY = 1000; // Adjusted to 1 second between batches
+
+  try {
+    // First, get all accounts in a single query to reduce database calls
+    const userIds = [...new Set(transactions.map(t => t.user_id))];
+    const { data: accounts, error: accountsError } = await supabase
+      .from("accounts")
+      .select("id, user_id, balance")
+      .in("user_id", userIds);
+
+    if (accountsError) {
+      throw new Error(`Failed to fetch accounts: ${accountsError.message}`);
+    }
+
+    // Create lookup map for faster access - avoids repeated database queries
+    const accountsMap = {};
+    accounts.forEach(account => {
+      accountsMap[account.user_id] = account;
+    });
+
+    // Process transactions in batches
+    for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+      const batch = transactions.slice(i, i + BATCH_SIZE);
+      
+      // Prepare batch updates for transactions and accounts
+      const transactionsToInsert = [];
+      const accountUpdates = {}; // Track balance changes by account ID
+      const failedInBatch = [];
+
+      // Prepare all records and balance changes in memory first
+      batch.forEach(transaction => {
+        try {
+          const account = accountsMap[transaction.user_id];
+          
+          if (!account) {
+            failedInBatch.push({
+              transaction,
+              success: false,
+              error: "Account not found"
+            });
+            return; // Skip to next transaction
+          }
+          
+          // Calculate new balance
+          let newBalance = account.balance;
+          if (transaction.type === "deposit") {
+            newBalance += transaction.amount;
+          } else if (transaction.type === "withdrawal") {
+            if (account.balance < transaction.amount) {
+              failedInBatch.push({
+                transaction,
+                success: false,
+                error: "Insufficient funds"
+              });
+              return; // Skip to next transaction
+            }
+            newBalance -= transaction.amount;
+          } else {
+            failedInBatch.push({
+              transaction,
+              success: false,
+              error: `Invalid transaction type: ${transaction.type}`
+            });
+            return; // Skip to next transaction
+          }
+          
+          // Track the new balance in our map
+          accountsMap[transaction.user_id].balance = newBalance;
+          
+          // Add transaction to batch
+          transactionsToInsert.push({
+            user_id: transaction.user_id,
+            account_id: account.id,
+            type: transaction.type,
+            amount: transaction.amount,
+            description: transaction.description || `Bulk ${transaction.type}`,
+            status: "completed",
+            created_at: new Date().toISOString(),
+          });
+          
+          // Track account updates
+          if (!accountUpdates[account.id]) {
+            accountUpdates[account.id] = newBalance;
+          } else {
+            accountUpdates[account.id] = newBalance;
+          }
+        } catch (error) {
+          failedInBatch.push({
+            transaction,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
+      // Process failed transactions
+      failedInBatch.forEach(item => {
+        results.failed++;
+        results.results.push(item);
+      });
+
+      // If we have transactions to insert, do it in a single database call
+      if (transactionsToInsert.length > 0) {
+        const { data: txData, error: txError } = await supabase
+          .from("transactions")
+          .insert(transactionsToInsert)
+          .select();
+
+        if (txError) {
+          console.error("Error in bulk transaction insert:", txError);
+          results.failed += transactionsToInsert.length;
+          transactionsToInsert.forEach(tx => {
+            results.results.push({
+              transaction: tx,
+              success: false,
+              error: txError.message || "Failed to insert transaction"
+            });
+          });
+        } else {
+          results.success += txData.length;
+          txData.forEach(tx => {
+            results.results.push({
+              transaction: tx,
+              success: true
+            });
+          });
+        }
+      }
+
+      // Update account balances in a single operation for each account
+      const accountUpdatePromises = Object.entries(accountUpdates).map(([accountId, newBalance]) => {
+        return supabase
+          .from("accounts")
+          .update({
+            balance: newBalance,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", accountId);
+      });
+
+      // Wait for all account updates to complete
+      await Promise.all(accountUpdatePromises);
+
+      // Apply rate limiting delay between batches (if not the last batch)
+      if (i + BATCH_SIZE < transactions.length) {
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_DELAY));
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error in bulk transactions:", error);
+    return {
+      ...results,
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
+  }
+}
+
+/**
  * Get account balance for a user with improved calculation
  * @param {string} userId - The user's ID
  * @returns {Promise<number>} - The user's account balance
@@ -811,6 +987,190 @@ export async function getLoanStatistics() {
 }
 
 /**
+ * Import multiple users in bulk
+ * @param {Object} options - Import options
+ * @param {Array<Object>} options.users - Array of user objects
+ * @param {string} options.importedBy - User ID of the admin performing the import
+ * @param {boolean} options.sendEmails - Whether to send welcome emails
+ * @param {string} options.fileName - Name of the import file for record keeping
+ * @returns {Promise<{success: number, failed: number, skipped: number, failedList: Array}>} - Results summary
+ */
+export async function bulkImportUsers({
+  users,
+  importedBy,
+  sendEmails = true,
+  fileName = "Manual Import",
+}) {
+  const results = {
+    total: users.length,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+    failedList: [],
+  };
+
+  try {
+    // Store the current admin session to restore later
+    const originalSession = supabase.auth.session();
+
+    // Process users sequentially to avoid session conflicts
+    for (const userData of users) {
+      try {
+        // Generate a temporary random password
+        const tempPassword = generateRandomPassword();
+
+        // Generate a new username if not provided
+        const username = userData.username || userData.email.split("@")[0];
+
+        // Explicitly clean any possible session before signing up
+        await supabase.auth.signOut();
+
+        // Attempt to create the user
+        const { user, error: signUpError } = await supabase.auth.signUp({
+          email: userData.email,
+          password: tempPassword,
+          options: {
+            data: {
+              full_name: userData.full_name,
+              is_admin: userData.role === "admin",
+              is_agent: userData.role === "agent",
+              is_manager: userData.role === "manager",
+              username,
+              imported_by: importedBy,
+              imported_at: new Date().toISOString(),
+              import_file: fileName,
+            },
+          },
+        });
+
+        if (signUpError || !user) {
+          console.error("Error creating user:", userData.email, signUpError);
+          results.failed++;
+          results.failedList.push({
+            email: userData.email,
+            reason: signUpError?.message || "Unknown error during signup",
+          });
+          continue;
+        }
+
+        // Immediately sign out to prevent session conflict
+        await supabase.auth.signOut();
+
+        // Wait a moment to ensure the user is properly created in the database
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Create financial account with initial balance (if specified)
+        const initialBalance = parseFloat(userData.initial_balance) || 0;
+
+        // Create account with the specified balance
+        const { data: account, error: accountError } = await supabase
+          .from("accounts")
+          .insert({
+            user_id: user.id,
+            balance: initialBalance,
+            status: "active",
+          })
+          .select()
+          .single();
+
+        if (accountError) {
+          console.error(
+            "Error creating account:",
+            userData.email,
+            accountError
+          );
+          results.failed++;
+          results.failedList.push({
+            email: userData.email,
+            reason: `Account creation failed: ${accountError.message}`,
+          });
+          continue;
+        }
+
+        // If there's an initial balance, create a deposit transaction
+        if (initialBalance > 0) {
+          const { error: transactionError } = await supabase
+            .from("transactions")
+            .insert({
+              user_id: user.id,
+              account_id: account.id,
+              amount: initialBalance,
+              type: "deposit",
+              description: "Initial deposit",
+              status: "completed",
+            });
+
+          if (transactionError) {
+            console.warn(
+              "Error recording initial deposit:",
+              userData.email,
+              transactionError
+            );
+            // We'll continue despite transaction recording error since the account was created
+          }
+        }
+
+        // Restore admin session before making RPC calls
+        if (originalSession) {
+          await supabase.auth.setSession(originalSession.session);
+        }
+
+        // For security, use an RPC call to send welcome emails
+        if (sendEmails) {
+          const { error: welcomeEmailError } = await supabase.rpc(
+            "send_welcome_email",
+            {
+              p_email: userData.email,
+              p_temp_password: tempPassword,
+            }
+          );
+
+          if (welcomeEmailError) {
+            console.warn(
+              "Error sending welcome email:",
+              userData.email,
+              welcomeEmailError
+            );
+            // We'll continue despite email errors since the user was created
+          }
+        }
+
+        results.success++;
+      } catch (error) {
+        console.error(
+          "Unexpected error during user import:",
+          userData.email,
+          error
+        );
+        results.failed++;
+        results.failedList.push({
+          email: userData.email,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Unknown error during processing",
+        });
+      } finally {
+        // Always restore admin session before continuing to the next user
+        if (originalSession) {
+          await supabase.auth.setSession(originalSession.session);
+        }
+      }
+    }
+
+    // Final restore of the admin session
+    if (originalSession) {
+      await supabase.auth.setSession(originalSession.session);
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Fatal error in bulk import:", error);
+    throw error;
+  }
+}
+
+/**
  * Generate a secure, random password
  * @param {number} length - Password length (default: 12)
  * @returns {string} - Secure random password
@@ -840,193 +1200,843 @@ function generateSecurePassword(length = 12) {
 }
 
 /**
- * Send welcome email to a new user
- * @param {Object} user - User object with email and temporary password
- * @returns {Promise<boolean>} - Success indicator
+ * Send welcome email with credit union introduction to a new user
+ * @param {Object} user - User object with email, name and password/reset link
+ * @returns {Promise<{success: boolean, messageId?: string, error?: string}>} - Email send status
  */
 async function sendWelcomeEmail(user) {
   try {
     // In a production environment, you would integrate with an email service like SendGrid, Mailgun, etc.
-    // For this demo, we'll just simulate a successful email send
+    // For this demo, we'll simulate email sending and track delivery status
 
-    console.log(
-      `Welcome email would be sent to ${user.email} with password: ${user.password}`
-    );
+    // Email template with credit union introduction
+    const emailTemplate = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #043c73; padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">Welcome to NAWEC Credit Union</h1>
+        </div>
+        <div style="padding: 20px; border: 1px solid #e0e0e0; border-top: none;">
+          <p>Dear ${user.full_name},</p>
+          
+          <p>Welcome to NAWEC Credit Union! We're excited to have you join our financial community.</p>
+          
+          <p>Your account has been created with the following details:</p>
+          <ul>
+            <li><strong>Email:</strong> ${user.email}</li>
+            <li><strong>Temporary Password:</strong> ${user.password}</li>
+          </ul>
+          
+          <p>Please log in at <a href="https://nawec-credit-union.org/login">https://nawec-credit-union.org/login</a> and change your password immediately.</p>
+          
+          <p>At NAWEC Credit Union, we offer:</p>
+          <ul>
+            <li>Fee-free savings accounts</li>
+            <li>Low-interest loans</li>
+            <li>Mobile banking access</li>
+            <li>Financial education resources</li>
+          </ul>
+          
+          <p>If you have any questions, please contact our support team at support@nawec-credit-union.org.</p>
+          
+          <p>Best regards,<br>NAWEC Credit Union Team</p>
+        </div>
+        <div style="background-color: #f5f5f5; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          &copy; ${new Date().getFullYear()} NAWEC Credit Union. All rights reserved.
+        </div>
+      </div>
+    `;
 
-    // Here you would typically call your email provider's API
+    // Generate a unique message ID for tracking
+    const messageId = `email_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 10)}`;
+
+    // In production, you would send the actual email here
+    console.log(`Welcome email would be sent to ${user.email} with template`);
     // Example with Supabase's Edge Functions (if implemented):
-    // await supabase.functions.invoke('send-welcome-email', { body: { user } });
+    // await supabase.functions.invoke('send-welcome-email', {
+    //   body: { user, template: emailTemplate }
+    // });
 
-    return true;
+    // Record email sending in the email_logs table
+    const { error: logError } = await supabase.from("email_logs").insert({
+      message_id: messageId,
+      recipient_email: user.email,
+      recipient_name: user.full_name,
+      subject: "Welcome to NAWEC Credit Union",
+      email_type: "welcome_email",
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    });
+
+    if (logError) {
+      console.error("Error logging email:", logError);
+      // Continue despite logging error
+    }
+
+    return {
+      success: true,
+      messageId,
+    };
   } catch (error) {
     console.error("Error sending welcome email:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to send email",
+    };
+  }
+}
+
+/**
+ * Track email delivery status update
+ * @param {string} messageId - Unique email message ID
+ * @param {string} status - New status (delivered, opened, clicked, bounced, etc.)
+ * @returns {Promise<boolean>} - Success indicator
+ */
+export async function updateEmailStatus(messageId, status) {
+  try {
+    const { error } = await supabase
+      .from("email_logs")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+        ...(status === "delivered"
+          ? { delivered_at: new Date().toISOString() }
+          : {}),
+        ...(status === "opened" ? { opened_at: new Date().toISOString() } : {}),
+      })
+      .eq("message_id", messageId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error updating email status:", error);
     return false;
   }
 }
 
 /**
- * Create a new user with all necessary related records
- * @param {Object} userData - User data (full_name, email, role, status, initial_balance)
- * @returns {Promise<Object>} - Created user data with temporary password
+ * Get email logs for monitoring
+ * @param {Object} options - Query options
+ * @param {string} options.email - Filter by recipient email
+ * @param {string} options.status - Filter by status
+ * @param {string} options.type - Filter by email type
+ * @param {number} options.limit - Max number of results
+ * @returns {Promise<Array>} - Array of email logs
  */
-export async function createUser(userData) {
+export async function getEmailLogs(options = {}) {
   try {
-    // Generate a secure temporary password
-    const tempPassword = generateSecurePassword();
+    let query = supabase
+      .from("email_logs")
+      .select("*")
+      .order("sent_at", { ascending: false });
 
-    // Create the user in Supabase Auth
-    const { data: authUser, error: authError } = await supabase.auth.signUp({
-      email: userData.email,
-      password: tempPassword,
-      options: {
-        data: {
-          full_name: userData.full_name,
-          is_admin: userData.role === "admin",
-        },
-      },
-    });
-
-    if (authError) throw authError;
-
-    // Create or update the user profile record
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .upsert({
-        id: authUser.user?.id,
-        email: userData.email,
-        full_name: userData.full_name,
-        is_admin: userData.role === "admin",
-        status: userData.status === "active",
-      })
-      .select()
-      .single();
-
-    if (profileError) throw profileError;
-
-    // Create an account for the user with initial balance
-    const { data: accountData, error: accountError } = await supabase
-      .from("accounts")
-      .insert({
-        user_id: authUser.user?.id,
-        balance: parseFloat(userData.initial_balance) || 0,
-      })
-      .select()
-      .single();
-
-    if (accountError) throw accountError;
-
-    // Add an initial deposit transaction if there's an initial balance
-    if (userData.initial_balance && parseFloat(userData.initial_balance) > 0) {
-      const { error: transactionError } = await supabase
-        .from("transactions")
-        .insert({
-          user_id: authUser.user?.id,
-          account_id: accountData.id,
-          amount: parseFloat(userData.initial_balance),
-          type: "deposit",
-          description: "Initial account funding",
-          status: "completed",
-        });
-
-      if (transactionError) {
-        console.error("Error creating initial transaction:", transactionError);
-        // Continue despite transaction creation error
-      }
+    if (options.email) {
+      query = query.eq("recipient_email", options.email);
     }
 
-    // Log the user creation in the audit log
-    const { error: auditError } = await supabase.from("audit_log").insert({
-      action: "user_created",
-      user_id: authUser.user?.id,
-      performed_by: "admin", // Ideally, this would be the actual admin's user ID
-      details: {
-        email: userData.email,
-        full_name: userData.full_name,
-        initial_balance: parseFloat(userData.initial_balance) || 0,
-        role: userData.role,
-        status: userData.status,
-      },
-    });
-
-    if (auditError) {
-      console.error("Error logging to audit trail:", auditError);
-      // Continue despite audit log error
+    if (options.status) {
+      query = query.eq("status", options.status);
     }
 
-    // Send welcome email to user
-    await sendWelcomeEmail({
-      email: userData.email,
-      full_name: userData.full_name,
-      password: tempPassword,
-    });
+    if (options.type) {
+      query = query.eq("email_type", options.type);
+    }
 
-    // Return the created user data and temporary password
-    return {
-      user: {
-        ...profileData,
-        account: accountData,
-      },
-      tempPassword,
-    };
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
   } catch (error) {
-    console.error("Error creating user:", error);
-    throw error;
+    console.error("Error fetching email logs:", error);
+    return [];
   }
 }
 
 /**
- * Resend welcome email to a user
- * @param {string} email - User email
+ * Resend welcome email to specific users
+ * @param {Array<string>} userEmails - Array of user emails
+ * @returns {Promise<{success: number, failed: number, results: Array}>} - Results summary
+ */
+export async function resendBulkWelcomeEmails(userEmails) {
+  const results = {
+    success: 0,
+    failed: 0,
+    results: [],
+  };
+
+  try {
+    for (const email of userEmails) {
+      try {
+        const success = await resendWelcomeEmail(email);
+
+        results.results.push({
+          email,
+          success,
+          error: success ? null : "Failed to send email",
+        });
+
+        if (success) {
+          results.success++;
+        } else {
+          results.failed++;
+        }
+      } catch (err) {
+        results.results.push({
+          email,
+          success: false,
+          error: err.message || "Unknown error",
+        });
+        results.failed++;
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error in bulk email resend:", error);
+    return {
+      success: results.success,
+      failed: results.failed + (userEmails.length - results.results.length),
+      results: results.results,
+      error: error.message || "Unknown error",
+    };
+  }
+}
+
+/**
+ * Resend welcome email to a specific user
+ * @param {string} email - User's email address
  * @returns {Promise<boolean>} - Success indicator
  */
-export async function resendWelcomeEmail(email) {
+export async function resendWelcomeEmail(email: string): Promise<boolean> {
   try {
-    // Get the user profile by email
-    const { data: profile, error: profileError } = await supabase
+    // First, look up the user in the profiles table
+    const { data: userProfile, error: profileError } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, full_name, email")
       .eq("email", email)
       .single();
 
-    if (profileError) throw profileError;
+    if (profileError || !userProfile) {
+      console.error("Error finding user profile:", profileError);
+      throw new Error("User not found");
+    }
 
     // Generate a new temporary password
-    const newPassword = generateSecurePassword();
+    const tempPassword = generateSecurePassword();
 
-    // Update the user's password
-    const { error: passwordError } = await supabase.auth.admin.updateUserById(
-      profile.id,
-      { password: newPassword }
+    // Update user's password in Auth
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      email,
+      {
+        redirectTo: `${window.location.origin}/reset-password`,
+      }
     );
 
-    if (passwordError) throw passwordError;
+    if (resetError) {
+      console.error("Error resetting password:", resetError);
+      // Continue despite error - we'll still try to send the email
+    }
 
-    // Send the welcome email
-    await sendWelcomeEmail({
-      email: profile.email,
-      full_name: profile.full_name,
-      password: newPassword,
+    // Send welcome email with new password
+    const emailResult = await sendWelcomeEmail({
+      email: userProfile.email,
+      full_name: userProfile.full_name,
+      password: tempPassword,
     });
 
-    // Log the password reset
-    const { error: auditError } = await supabase.from("audit_log").insert({
-      action: "password_reset",
-      user_id: profile.id,
-      performed_by: "admin", // Ideally, this would be the actual admin's user ID
-      details: {
-        email: profile.email,
-        reason: "welcome_email_resend",
-      },
+    if (!emailResult.success) {
+      console.error("Error sending welcome email:", emailResult.error);
+      return false;
+    }
+
+    // Log this email resend in the email logs
+    const { error: logError } = await supabase.from("email_logs").insert({
+      message_id: `resend_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 10)}`,
+      recipient_email: userProfile.email,
+      recipient_name: userProfile.full_name,
+      subject: "Welcome to NAWEC Credit Union (Resent)",
+      email_type: "welcome_email_resent",
+      status: "sent",
+      sent_at: new Date().toISOString(),
     });
 
-    if (auditError) {
-      console.error("Error logging to audit trail:", auditError);
-      // Continue despite audit log error
+    if (logError) {
+      console.error("Error logging email resend:", logError);
+      // Continue despite logging error
     }
 
     return true;
   } catch (error) {
     console.error("Error resending welcome email:", error);
     return false;
+  }
+}
+
+/**
+ * Create multiple users with email notifications in bulk
+ * Enhanced version with improved session management and balance handling
+ * @param {Object} params - Import parameters
+ * @param {Array<Object>} params.users - Array of user data objects
+ * @param {string} params.importedBy - ID of admin performing the import
+ * @param {boolean} params.sendEmails - Whether to send welcome emails
+ * @param {string} params.fileName - Original filename (for audit)
+ * @returns {Promise<Object>} - Import results
+ */
+export async function enhancedBulkImportUsers({
+  users,
+  importedBy,
+  sendEmails = true,
+  fileName = null,
+}) {
+  // Initialize results tracking
+  const results = {
+    total: users.length,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+    emailsSent: 0,
+    emailsFailed: 0,
+    successList: [],
+    failedList: [],
+    importId: `import_${Date.now()}`,
+  };
+
+  // Apply rate limiting for large imports
+  const BATCH_SIZE = 5; // Process users in smaller batches to avoid overwhelming the auth system
+  const RATE_LIMIT_DELAY = 1500; // 1.5 second delay between batches
+
+  try {
+    // Store the current admin session for restoration at the end
+    const { data: adminSession } = await supabase.auth.getSession();
+
+    // Process users in batches with rate limiting
+    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+      const batch = users.slice(i, i + BATCH_SIZE);
+
+      // Process each user in the batch sequentially (not in parallel to avoid session conflicts)
+      for (const userData of batch) {
+        try {
+          // Skip users without required fields
+          if (!userData.email || !userData.full_name) {
+            results.skipped++;
+            results.failedList.push({
+              email: userData.email || "missing-email",
+              reason: "Missing required fields",
+            });
+            continue;
+          }
+
+          // Check for existing user with same email
+          const { data: existingUser } = await supabase
+            .from("profiles")
+            .select("email")
+            .eq("email", userData.email)
+            .maybeSingle();
+
+          if (existingUser) {
+            results.skipped++;
+            results.failedList.push({
+              email: userData.email,
+              reason: "Email already exists",
+            });
+            continue;
+          }
+
+          // Parse initial balance
+          let initialBalance = 0;
+          if (userData.initial_balance !== undefined) {
+            if (typeof userData.initial_balance === "string") {
+              initialBalance = parseFloat(userData.initial_balance);
+              if (isNaN(initialBalance)) {
+                initialBalance = 0;
+              }
+            } else if (typeof userData.initial_balance === "number") {
+              initialBalance = userData.initial_balance;
+            }
+          }
+
+          // Generate a secure temporary password
+          const tempPassword = generateSecurePassword();
+
+          // 1. Create the user with explicit autoconfirm: false to prevent auto-login
+          const { data: authData, error: authError } =
+            await supabase.auth.signUp({
+              email: userData.email,
+              password: tempPassword,
+              options: {
+                data: {
+                  full_name: userData.full_name,
+                  created_by_admin: true,
+                  role: userData.role || "regular",
+                  is_admin: userData.role === "admin",
+                },
+                emailRedirectTo: `${window.location.origin}/login`,
+                // Explicitly set autoconfirm to true but don't auto-login
+                emailConfirm: true,
+              },
+            });
+
+          if (authError || !authData.user) {
+            throw new Error(authError?.message || "Failed to create user");
+          }
+
+          // Immediately sign out to prevent session switching
+          await supabase.auth.signOut({ scope: "local" });
+
+          // Restore admin session
+          if (adminSession?.session) {
+            await supabase.auth.setSession(adminSession.session);
+          }
+
+          // 2. Insert a record in the profiles table
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .insert({
+              id: authData.user.id,
+              full_name: userData.full_name,
+              email: userData.email,
+              is_admin: userData.role === "admin",
+              role: userData.role || "regular",
+              status: userData.status || "active",
+            });
+
+          if (profileError) {
+            throw new Error(`Profile creation failed: ${profileError.message}`);
+          }
+
+          // 3. Create an account with the correct initial balance directly
+          const { data: accountData, error: accountError } = await supabase
+            .from("accounts")
+            .insert({
+              user_id: authData.user.id,
+              balance: initialBalance, // Set the balance directly
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (accountError || !accountData) {
+            throw new Error(
+              `Account creation failed: ${accountError?.message}`
+            );
+          }
+
+          // 4. Create a transaction record for the initial balance if > 0
+          if (initialBalance > 0) {
+            const { error: transactionError } = await supabase
+              .from("transactions")
+              .insert({
+                user_id: authData.user.id,
+                account_id: accountData.id,
+                type: "deposit",
+                amount: initialBalance,
+                description: "Initial deposit (bulk import)",
+                status: "completed",
+                created_at: new Date().toISOString(),
+              });
+
+            if (transactionError) {
+              console.error(
+                "Error creating initial transaction:",
+                transactionError
+              );
+              // Continue despite transaction error - we've already set the balance
+            }
+          }
+
+          // 5. Mark as successful
+          results.success++;
+          results.successList.push({
+            id: authData.user.id,
+            email: userData.email,
+          });
+
+          // 6. Send welcome email if requested
+          if (sendEmails) {
+            try {
+              const emailResult = await sendWelcomeEmail({
+                email: userData.email,
+                full_name: userData.full_name,
+                password: tempPassword,
+              });
+
+              if (emailResult.success) {
+                results.emailsSent++;
+              } else {
+                results.emailsFailed++;
+              }
+            } catch (emailError) {
+              console.error(
+                `Error sending welcome email to ${userData.email}:`,
+                emailError
+              );
+              results.emailsFailed++;
+            }
+          }
+        } catch (error) {
+          console.error(`Error creating user ${userData?.email}:`, error);
+          results.failed++;
+          results.failedList.push({
+            email: userData?.email || "unknown",
+            reason: error.message || "Unknown error",
+          });
+
+          // Always ensure we're back on the admin session after any errors
+          if (adminSession?.session) {
+            await supabase.auth.setSession(adminSession.session);
+          }
+        }
+      }
+
+      // Apply rate limiting delay between batches
+      if (i + BATCH_SIZE < users.length) {
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_DELAY));
+      }
+    }
+
+    // Final step: ensure we're back on the admin session
+    if (adminSession?.session) {
+      await supabase.auth.setSession(adminSession.session);
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error in bulk user import:", error);
+    return {
+      ...results,
+      error: error.message || "An unexpected error occurred",
+    };
+  }
+}
+
+/**
+ * Get audit logs for bulk imports
+ * @param {Object} options - Query options
+ * @param {string} options.importId - Filter by import ID
+ * @param {string} options.performedBy - Filter by admin user ID
+ * @param {string} options.status - Filter by status
+ * @param {number} options.limit - Max number of results
+ * @returns {Promise<Array>} - Array of import audit logs
+ */
+export async function getImportAuditLogs(options = {}) {
+  try {
+    let query = supabase
+      .from("import_audit_logs")
+      .select("*")
+      .order("started_at", { ascending: false });
+
+    if (options.importId) {
+      query = query.eq("import_id", options.importId);
+    }
+
+    if (options.performedBy) {
+      query = query.eq("performed_by", options.performedBy);
+    }
+
+    if (options.status) {
+      query = query.eq("status", options.status);
+    }
+
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error("Error fetching import audit logs:", error);
+    return [];
+  }
+}
+
+/**
+ * Check if user has permissions for bulk import operations
+ * @param {string} userId - User ID to check
+ * @returns {Promise<{allowed: boolean, maxBatchSize?: number}>} - Permission result
+ */
+export async function checkBulkImportPermission(userId) {
+  try {
+    // Get the user's profile to check admin status
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", userId)
+      .single();
+
+    if (error || !profile) {
+      return { allowed: false };
+    }
+
+    // Only admins can perform bulk imports
+    if (!profile.is_admin) {
+      return { allowed: false };
+    }
+
+    // In a real system, you might have different permission levels
+    // Here we're implementing a simple admin check with a default batch size
+    return {
+      allowed: true,
+      maxBatchSize: 100, // Max users that can be imported at once
+    };
+  } catch (error) {
+    console.error("Error checking bulk import permission:", error);
+    return { allowed: false };
+  }
+}
+
+/**
+ * Create a new user with a temporary password
+ * @param {Object} userData - The user data object
+ * @returns {Promise<Object>} - The created user object with temporary password
+ */
+export async function createUser(userData: {
+  full_name: string;
+  email: string;
+  initial_balance?: number;
+  role?: string;
+  status?: string;
+}) {
+  try {
+    // Generate a secure temporary password
+    const tempPassword = generateSecurePassword();
+
+    // Sign up the user with Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: userData.email,
+      password: tempPassword,
+      options: {
+        data: {
+          full_name: userData.full_name,
+          role: userData.role || "regular",
+          is_admin: userData.role === "admin",
+        },
+      },
+    });
+
+    if (authError) {
+      console.error("Error creating user authentication:", authError);
+      throw authError;
+    }
+
+    if (!authData.user) {
+      throw new Error("Failed to create user");
+    }
+
+    // Insert a record in the profiles table
+    const { error: profileError } = await supabase.from("profiles").insert({
+      id: authData.user.id,
+      full_name: userData.full_name,
+      email: userData.email,
+      is_admin: userData.role === "admin",
+      role: userData.role || "regular",
+      status: userData.status || "active",
+    });
+
+    if (profileError) {
+      console.error("Error creating user profile:", profileError);
+      throw profileError;
+    }
+
+    // Create an account for the user with initial balance if provided
+    const initialBalance = userData.initial_balance || 0;
+    const { data: accountData, error: accountError } = await supabase
+      .from("accounts")
+      .insert({
+        user_id: authData.user.id,
+        balance: initialBalance,
+      })
+      .select()
+      .single();
+
+    if (accountError) {
+      console.error("Error creating user account:", accountError);
+      throw accountError;
+    }
+
+    // If initial balance is positive, create a deposit transaction
+    if (initialBalance > 0) {
+      await addTransaction({
+        user_id: authData.user.id,
+        account_id: accountData.id,
+        amount: initialBalance,
+        type: "deposit",
+        description: "Initial deposit",
+        status: "completed",
+        method: "system",
+      });
+    }
+
+    // Send welcome email if enabled
+    try {
+      const emailResult = await sendWelcomeEmail({
+        email: userData.email,
+        full_name: userData.full_name,
+        password: tempPassword,
+      });
+
+      console.log("Welcome email sent:", emailResult);
+    } catch (emailError) {
+      // Log email error but continue - the user was created successfully
+      console.error("Error sending welcome email:", emailError);
+    }
+
+    return {
+      user: {
+        id: authData.user.id,
+        email: authData.user.email,
+        full_name: userData.full_name,
+      },
+      tempPassword,
+    };
+  } catch (error) {
+    console.error("Error in createUser:", error);
+    throw error;
+  }
+}
+
+/**
+ * Delete users from the system along with their associated data
+ * @param {Array<string>} userIds - Array of user IDs to delete
+ * @returns {Promise<{success: number, failed: number, results: Array}>} - Results summary
+ */
+export async function deleteUsers(userIds: string[]) {
+  const results = {
+    success: 0,
+    failed: 0,
+    results: [] as Array<{ id: string; success: boolean; error?: string }>,
+  };
+
+  try {
+    // Process each user sequentially to ensure proper cleanup
+    for (const userId of userIds) {
+      try {
+        // Step 1: Find user profile first to confirm it exists
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, email")
+          .eq("id", userId)
+          .single();
+
+        if (profileError || !profile) {
+          results.failed++;
+          results.results.push({
+            id: userId,
+            success: false,
+            error: "User profile not found",
+          });
+          continue;
+        }
+
+        // Step 2: Delete all transactions associated with the user
+        const { error: txError } = await supabase
+          .from("transactions")
+          .delete()
+          .eq("user_id", userId);
+
+        if (txError) {
+          console.error(
+            `Error deleting transactions for user ${userId}:`,
+            txError
+          );
+          // Continue despite error - we want to attempt full cleanup
+        }
+
+        // Step 3: Delete any accounts associated with the user
+        const { error: accountError } = await supabase
+          .from("accounts")
+          .delete()
+          .eq("user_id", userId);
+
+        if (accountError) {
+          console.error(
+            `Error deleting account for user ${userId}:`,
+            accountError
+          );
+          // Continue despite error - we want to attempt full cleanup
+        }
+
+        // Step 4: Delete any loans associated with the user
+        const { error: loanError } = await supabase
+          .from("loans")
+          .delete()
+          .eq("user_id", userId);
+
+        if (loanError) {
+          console.error(`Error deleting loans for user ${userId}:`, loanError);
+          // Continue despite error
+        }
+
+        // Step 5: Delete the user profile
+        const { error: deleteProfileError } = await supabase
+          .from("profiles")
+          .delete()
+          .eq("id", userId);
+
+        if (deleteProfileError) {
+          console.error(
+            `Error deleting user profile for ${userId}:`,
+            deleteProfileError
+          );
+          results.failed++;
+          results.results.push({
+            id: userId,
+            success: false,
+            error: deleteProfileError.message || "Failed to delete profile",
+          });
+          continue;
+        }
+
+        // Step 6: Delete the user from auth table
+        const { error: authError } = await supabase.auth.admin.deleteUser(
+          userId
+        );
+
+        if (authError) {
+          console.error(`Error deleting auth user ${userId}:`, authError);
+          results.failed++;
+          results.results.push({
+            id: userId,
+            success: false,
+            error: authError.message || "Failed to delete auth user",
+          });
+          continue;
+        }
+
+        // Success - all related data deleted
+        results.success++;
+        results.results.push({
+          id: userId,
+          success: true,
+        });
+      } catch (error) {
+        console.error(`Error processing deletion for user ${userId}:`, error);
+        results.failed++;
+        results.results.push({
+          id: userId,
+          success: false,
+          error: error.message || "Unknown error during deletion",
+        });
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error in bulk user deletion:", error);
+    return {
+      success: results.success,
+      failed: results.failed + (userIds.length - results.results.length),
+      results: results.results,
+      error: error.message || "Unknown error in deletion process",
+    };
   }
 }

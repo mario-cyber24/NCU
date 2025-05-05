@@ -1,0 +1,16 @@
+Full Name,Email Address,Initial Balance,User Role,Account Status
+Test User 1,test.user1@nawec.com,1000,regular,active
+Test User 2,test.user2@nawec.com,2500,regular,active
+Test User 3,test.user3@nawec.com,0,regular,active
+Test Manager,test.manager@nawec.com,5000,regular,active
+Test Admin,test.admin@nawec.com,3000,admin,active
+Test Support,test.support@nawec.com,1200,regular,active
+Test Finance,test.finance@nawec.com,4200,regular,active
+Test Inactive,test.inactive@nawec.com,100,regular,inactive
+Test Customer,test.customer@nawec.com,750,regular,active
+Test Agent,test.agent@nawec.com,1800,regular,active
+New Test User,new.test@nawec.com,950,regular,active
+Sample User,sample.user@nawec.com,2100,regular,active
+Demo Account,demo.account@nawec.com,500,regular,active
+Testing Import,testing.import@nawec.com,3300,regular,active
+Import Demo,import.demo@nawec.com,1700,regular,active

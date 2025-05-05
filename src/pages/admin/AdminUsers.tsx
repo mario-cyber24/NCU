@@ -4,29 +4,33 @@ import {
   getAllUsers,
   updateAccountBalance,
   addTransaction,
+  resendWelcomeEmail,
+  deleteUsers,
   createUser,
-  resendWelcomeEmail as resendEmail,
+  bulkImportUsers,
+  bulkAddTransactions,
 } from "../../lib/supabase";
-import Header from "../../components/Header";
-import AdminLayout from "../../components/AdminLayout";
 import {
-  RefreshCw,
-  ChevronDown,
-  Edit,
-  CreditCard,
   Search,
-  Check,
-  X,
-  Mail,
   UserPlus,
+  Upload,
+  RefreshCw,
+  Download,
+  X,
+  Check,
+  Plus,
+  User,
+  Edit,
+  AlertTriangle,
+  Mail,
+  CreditCard,
+  DollarSign,
   Square,
   CheckSquare,
-  User,
-  Plus,
-  Download,
-  AlertTriangle,
+  FileUp,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
+import BulkTransactionModal from "../../components/ui/BulkTransactionModal";
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -47,16 +51,70 @@ export default function AdminUsers() {
   const [balanceFilter, setBalanceFilter] = useState<string>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // New state variables for the "Add New User" functionality
+  // Get auth context at the component level, not inside functions
+  const { user: currentUser } = useAuth();
+
+  // New user form state
   const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
   const [newUserFullName, setNewUserFullName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserInitialBalance, setNewUserInitialBalance] = useState("");
-  const [newUserRole, setNewUserRole] = useState("regular"); // "regular" or "admin"
-  const [newUserStatus, setNewUserStatus] = useState("active"); // "active" or "inactive"
-  const [isCreatingUser, setIsCreatingUser] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
+  const [newUserRole, setNewUserRole] = useState("regular");
+  const [newUserStatus, setNewUserStatus] = useState("active");
   const [tempPassword, setTempPassword] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Bulk import state variables
+  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
+  const [bulkImportTab, setBulkImportTab] = useState<"upload" | "paste">(
+    "upload"
+  );
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImportText, setBulkImportText] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [parsedUsers, setParsedUsers] = useState<
+    Array<{
+      rowId: number;
+      data: {
+        full_name?: string;
+        email?: string;
+        initial_balance?: number;
+        role?: string;
+        status?: string;
+      };
+      isValid: boolean;
+      errors: string[];
+      include: boolean;
+    }>
+  >([]);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+  // Confirmation and results state variables
+  const [isConfirmationMode, setIsConfirmationMode] = useState(false);
+  const [sendWelcomeEmails, setSendWelcomeEmails] = useState(true);
+  const [importResults, setImportResults] = useState<{
+    success: number;
+    failed: number;
+    failedRecords: Array<{
+      email: string;
+      reason: string;
+    }>;
+    completed: boolean;
+  }>({
+    success: 0,
+    failed: 0,
+    failedRecords: [],
+    completed: false,
+  });
+  const [importProgress, setImportProgress] = useState(0);
+
+  // Add this new state for the bulk transactions modal
+  const [isBulkTransactionModalOpen, setIsBulkTransactionModalOpen] =
+    useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -66,13 +124,11 @@ export default function AdminUsers() {
     if (users.length > 0) {
       let filtered = [...users];
 
-      if (searchTerm) {
-        filtered = filtered.filter(
-          (user) =>
-            user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.email?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-      }
+      filtered = filtered.filter(
+        (user) =>
+          user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
 
       if (statusFilter !== "all") {
         if (statusFilter === "admin") {
@@ -302,6 +358,16 @@ export default function AdminUsers() {
 
         toast.success(`Exported ${selectedUsers.length} users`);
         setSelectedUsers([]);
+      } else if (action === "delete") {
+        const confirmed = window.confirm(
+          `Are you sure you want to delete ${selectedUsers.length} selected users? This action cannot be undone.`
+        );
+        if (!confirmed) return;
+
+        await deleteUsers(selectedUsers);
+        toast.success(`Deleted ${selectedUsers.length} users`);
+        setSelectedUsers([]);
+        fetchUsers();
       }
     } catch (error) {
       console.error(`Error in bulk action ${action}:`, error);
@@ -346,12 +412,354 @@ export default function AdminUsers() {
 
   const handleResendWelcomeEmail = async () => {
     try {
-      await resendEmail(newUserEmail);
+      await resendWelcomeEmail(newUserEmail);
       toast.success("Welcome email resent successfully");
     } catch (error) {
       console.error("Error resending welcome email:", error);
       toast.error("Failed to resend welcome email");
     }
+  };
+
+  const handleDownloadTemplate = () => {
+    // Create CSV headers and sample data
+    const headers =
+      "Full Name,Email Address,Initial Balance,User Role,Account Status";
+    const sampleRow = "John Doe,john.doe@example.com,5000,regular,active";
+    const templateContent = `${headers}\n${sampleRow}`;
+
+    // Create a blob and download link
+    const blob = new Blob([templateContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "user-import-template.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success("Template downloaded successfully");
+  };
+
+  const handleProcessFile = async (file: File) => {
+    setIsProcessingFile(true);
+    setFileError("");
+
+    try {
+      // Check file type
+      const fileType = file.name.split(".").pop()?.toLowerCase();
+      if (!["csv", "xlsx", "xls"].includes(fileType || "")) {
+        setFileError("Invalid file format. Please upload a CSV or Excel file.");
+        setBulkImportFile(null);
+        return;
+      }
+
+      // Check file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        setFileError("File is too large. Maximum size is 5MB.");
+        setBulkImportFile(null);
+        return;
+      }
+
+      // Read file content as text
+      const fileContent = await file.text();
+
+      // Process the CSV data
+      const processedUsers = parseCSVData(fileContent);
+      setParsedUsers(processedUsers);
+
+      // Switch to preview mode
+      setIsPreviewMode(true);
+    } catch (error) {
+      console.error("Error processing file:", error);
+      setFileError(
+        "Failed to process file. Please check the format and try again."
+      );
+    } finally {
+      setIsProcessingFile(false);
+    }
+  };
+
+  const handleProcessPastedData = () => {
+    if (!bulkImportText.trim()) {
+      return;
+    }
+
+    try {
+      // Process the pasted CSV data
+      const processedUsers = parseCSVData(bulkImportText);
+      setParsedUsers(processedUsers);
+
+      // Switch to preview mode
+      setIsPreviewMode(true);
+    } catch (error) {
+      console.error("Error processing pasted data:", error);
+      toast.error(
+        "Failed to process data. Please check the format and try again."
+      );
+    }
+  };
+
+  // Parse and validate CSV data
+  const parseCSVData = (csvText: string) => {
+    const lines = csvText.split("\n").filter((line) => line.trim());
+
+    if (lines.length < 2) {
+      throw new Error("CSV must have a header row and at least one data row");
+    }
+
+    const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+    const nameIndex = headers.findIndex((h) => h.includes("name"));
+    const emailIndex = headers.findIndex((h) => h.includes("email"));
+    const balanceIndex = headers.findIndex((h) => h.includes("balance"));
+    const roleIndex = headers.findIndex((h) => h.includes("role"));
+    const statusIndex = headers.findIndex((h) => h.includes("status"));
+
+    // Email list for duplicate checking
+    const existingEmails = new Set(users.map((u) => u.email.toLowerCase()));
+    const emailsInFile = new Set<string>();
+
+    // Process each row
+    return lines.slice(1).map((line, idx) => {
+      const values = line.split(",").map((v) => v.trim());
+      const errors: string[] = [];
+
+      // Extract values with validation
+      const name = nameIndex >= 0 ? values[nameIndex] : "";
+      const email = emailIndex >= 0 ? values[emailIndex] : "";
+      const balanceStr = balanceIndex >= 0 ? values[balanceIndex] : "0";
+      const role =
+        roleIndex >= 0 ? values[roleIndex]?.toLowerCase() : "regular";
+      const status =
+        statusIndex >= 0 ? values[statusIndex]?.toLowerCase() : "active";
+
+      // Validate required fields
+      if (!name) {
+        errors.push("Name is required");
+      }
+
+      if (!email) {
+        errors.push("Email is required");
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        // Basic email format validation
+        errors.push("Invalid email format");
+      } else {
+        // Check for duplicates within the file
+        if (emailsInFile.has(email.toLowerCase())) {
+          errors.push("Duplicate email in import file");
+        } else {
+          emailsInFile.add(email.toLowerCase());
+        }
+
+        // Check for duplicates with existing users
+        if (existingEmails.has(email.toLowerCase())) {
+          errors.push("Email already exists in the system");
+        }
+      }
+
+      // Validate balance
+      let balance = 0;
+      if (balanceStr) {
+        const parsedBalance = parseFloat(balanceStr);
+        if (isNaN(parsedBalance) || parsedBalance < 0) {
+          errors.push("Balance must be a positive number");
+        } else {
+          balance = parsedBalance;
+        }
+      }
+
+      // Validate role
+      if (role && !["regular", "admin"].includes(role)) {
+        errors.push("Role must be 'regular' or 'admin'");
+      }
+
+      // Validate status
+      if (status && !["active", "inactive"].includes(status)) {
+        errors.push("Status must be 'active' or 'inactive'");
+      }
+
+      return {
+        rowId: idx,
+        data: {
+          full_name: name,
+          email,
+          initial_balance: balance,
+          role: role || "regular",
+          status: status || "active",
+        },
+        isValid: errors.length === 0,
+        errors,
+        include: errors.length === 0, // Only include valid records by default
+      };
+    });
+  };
+
+  const handleBulkImport = async () => {
+    // Get only valid and included users
+    const usersToImport = parsedUsers
+      .filter((user) => user.isValid && user.include)
+      .map((user) => user.data);
+
+    if (usersToImport.length === 0) {
+      toast.error("No valid users selected for import");
+      return;
+    }
+
+    // Show confirmation dialog instead of immediately importing
+    setIsConfirmationMode(true);
+  };
+
+  const handleConfirmImport = async () => {
+    setIsImporting(true);
+    setImportProgress(0);
+
+    // Get only valid and included users
+    const usersToImport = parsedUsers
+      .filter((user) => user.isValid && user.include)
+      .map((user) => user.data);
+
+    try {
+      // Reset results
+      setImportResults({
+        success: 0,
+        failed: 0,
+        failedRecords: [],
+        completed: false,
+      });
+
+      // Get the original file name if available
+      const fileName = bulkImportFile ? bulkImportFile.name : "Manual Import";
+
+      // Use the bulkImportUsers function with progress tracking
+      const importResult = await bulkImportUsers({
+        users: usersToImport,
+        importedBy: currentUser.id,
+        sendEmails: sendWelcomeEmails,
+        fileName,
+      });
+
+      // Update progress during import (simulated with intervals)
+      const progressInterval = setInterval(() => {
+        setImportProgress((prev) => {
+          const newProgress = prev + 5;
+          if (newProgress >= 100) {
+            clearInterval(progressInterval);
+            return 100;
+          }
+          return newProgress;
+        });
+      }, 200);
+
+      // Final progress update
+      setTimeout(() => {
+        clearInterval(progressInterval);
+        setImportProgress(100);
+
+        // Update results in state
+        setImportResults({
+          success: importResult.success,
+          failed: importResult.failed + importResult.skipped,
+          failedRecords: importResult.failedList.map((item) => ({
+            email: item.email,
+            reason: item.reason,
+          })),
+          completed: true,
+        });
+
+        // In production, refresh the users list if at least one user was created
+        if (importResult.success > 0) {
+          fetchUsers();
+        }
+      }, 1000);
+    } catch (error) {
+      console.error("Error during bulk import:", error);
+      toast.error("An unexpected error occurred during import");
+
+      setImportResults({
+        success: 0,
+        failed: usersToImport.length,
+        failedRecords: [
+          {
+            email: "all",
+            reason:
+              error instanceof Error
+                ? error.message
+                : "Network or server error",
+          },
+        ],
+        completed: true,
+      });
+    } finally {
+      setIsImporting(false);
+      setIsConfirmationMode(false);
+    }
+  };
+
+  const handleRetryFailedImports = () => {
+    // Filter parsedUsers to keep only the failed ones
+    const failedEmails = new Set(
+      importResults.failedRecords.map((r) => r.email.toLowerCase())
+    );
+
+    setParsedUsers((prev) =>
+      prev.map((user) => {
+        if (
+          user.data.email &&
+          failedEmails.has(user.data.email.toLowerCase())
+        ) {
+          return { ...user, include: true };
+        }
+        return { ...user, include: false };
+      })
+    );
+
+    // Reset results and go back to preview mode
+    setImportResults({
+      success: 0,
+      failed: 0,
+      failedRecords: [],
+      completed: false,
+    });
+  };
+
+  const downloadErrorReport = () => {
+    // Create CSV content
+    const headers = "Row,Email,Error";
+    const rows = importResults.failedRecords.map(
+      (record, index) => `${index + 1},${record.email},"${record.reason}"`
+    );
+
+    const csvContent = [headers, ...rows].join("\n");
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `import-errors-${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success("Error report downloaded");
+  };
+
+  const toggleRowSelection = (rowId: number) => {
+    setParsedUsers((prev) =>
+      prev.map((user) =>
+        user.rowId === rowId ? { ...user, include: !user.include } : user
+      )
+    );
+  };
+
+  const toggleAllRows = () => {
+    const allSelected = parsedUsers.every((user) => user.include);
+    setParsedUsers((prev) =>
+      prev.map((user) => ({ ...user, include: !allSelected && user.isValid }))
+    );
   };
 
   return (
@@ -372,6 +780,23 @@ export default function AdminUsers() {
           >
             <UserPlus size={16} className="mr-2" />
             New User
+          </button>
+
+          <button
+            onClick={() => setIsBulkImportModalOpen(true)}
+            className="btn bg-green-600 hover:bg-green-700 text-white flex items-center"
+          >
+            <Upload size={16} className="mr-2" />
+            Bulk Import
+          </button>
+
+          {/* Add new button for bulk transactions */}
+          <button
+            onClick={() => setIsBulkTransactionModalOpen(true)}
+            className="btn bg-blue-600 hover:bg-blue-700 text-white flex items-center"
+          >
+            <DollarSign size={16} className="mr-2" />
+            Bulk Transactions
           </button>
 
           <button
@@ -397,6 +822,19 @@ export default function AdminUsers() {
           >
             <Download size={16} className="mr-2" />
             {isExporting ? "Exporting..." : `Export (${selectedUsers.length})`}
+          </button>
+
+          <button
+            onClick={() => handleBulkAction("delete")}
+            disabled={selectedUsers.length === 0}
+            className={`btn flex items-center ${
+              selectedUsers.length > 0
+                ? "bg-red-600 hover:bg-red-700 text-white"
+                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+            }`}
+          >
+            <X size={16} className="mr-2" />
+            Delete Selected
           </button>
         </div>
       </div>
@@ -1133,6 +1571,851 @@ export default function AdminUsers() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Bulk Import Modal */}
+      {isBulkImportModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 flex-shrink-0">
+              <h3 className="text-lg font-medium text-gray-900">
+                Bulk Import Users
+              </h3>
+              <button
+                onClick={() => {
+                  setIsBulkImportModalOpen(false);
+                  setBulkImportTab("upload");
+                  setBulkImportFile(null);
+                  setBulkImportText("");
+                  setIsPreviewMode(false);
+                  setParsedUsers([]);
+                  setIsConfirmationMode(false);
+                  setImportProgress(0);
+                  setImportResults({
+                    success: 0,
+                    failed: 0,
+                    failedRecords: [],
+                    completed: false,
+                  });
+                }}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-6 py-4 flex-grow">
+              {/* Confirmation Step */}
+              {isConfirmationMode && !importResults.completed ? (
+                <div className="confirmation-step">
+                  <div className="mb-8 text-center">
+                    <div className="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                      <Upload size={24} className="text-blue-600" />
+                    </div>
+                    <h3 className="text-xl font-medium text-gray-900">
+                      Confirm Import
+                    </h3>
+                    <p className="mt-2 text-sm text-gray-600">
+                      You are about to import{" "}
+                      {parsedUsers.filter((u) => u.isValid && u.include).length}{" "}
+                      users. Please confirm the details below before proceeding.
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-100 rounded-md p-4 mb-6">
+                    <div className="flex justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        Records to import:
+                      </span>
+                      <span className="text-sm font-medium text-blue-800">
+                        {
+                          parsedUsers.filter((u) => u.isValid && u.include)
+                            .length
+                        }{" "}
+                        user(s)
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">
+                        Invalid records (skipped):
+                      </span>
+                      <span className="text-sm font-medium text-red-600">
+                        {parsedUsers.filter((u) => !u.isValid).length} record(s)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-md p-4 mb-6">
+                    <div className="flex items-center mb-4">
+                      <input
+                        type="checkbox"
+                        id="sendWelcomeEmails"
+                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                        checked={sendWelcomeEmails}
+                        onChange={() =>
+                          setSendWelcomeEmails(!sendWelcomeEmails)
+                        }
+                      />
+                      <label
+                        htmlFor="sendWelcomeEmails"
+                        className="ml-2 text-sm text-gray-700"
+                      >
+                        Send welcome emails to all new users
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Each user will receive a welcome email containing their
+                      login credentials and instructions to set up their
+                      password.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="btn bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      onClick={() => setIsConfirmationMode(false)}
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      className="btn bg-green-600 text-white hover:bg-green-700 flex items-center"
+                      onClick={handleConfirmImport}
+                      disabled={isImporting}
+                    >
+                      {isImporting ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Check size={16} className="mr-2" />
+                          Confirm Import
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : importResults.completed ? (
+                <div className="results-summary">
+                  <div className="mb-8 text-center">
+                    {importResults.failed === 0 ? (
+                      <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                        <Check size={24} className="text-green-600" />
+                      </div>
+                    ) : importResults.success === 0 ? (
+                      <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                        <X size={24} className="text-red-600" />
+                      </div>
+                    ) : (
+                      <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                        <AlertTriangle size={24} className="text-yellow-600" />
+                      </div>
+                    )}
+
+                    <h3 className="text-xl font-medium text-gray-900">
+                      {importResults.failed === 0
+                        ? "Import Completed Successfully"
+                        : importResults.success === 0
+                        ? "Import Failed"
+                        : "Import Completed with Issues"}
+                    </h3>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-md p-4 mb-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-green-50 border border-green-100 rounded-md">
+                        <div className="font-medium text-green-800 mb-1">
+                          Successful
+                        </div>
+                        <div className="text-2xl font-bold text-green-700">
+                          {importResults.success}
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">
+                          users created
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-red-50 border border-red-100 rounded-md">
+                        <div className="font-medium text-red-800 mb-1">
+                          Failed
+                        </div>
+                        <div className="text-2xl font-bold text-red-700">
+                          {importResults.failed}
+                        </div>
+                        <div className="text-xs text-red-600 mt-1">
+                          records skipped
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {importResults.failed > 0 && (
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">
+                        Failed Records
+                      </h4>
+                      <div className="border border-gray-200 rounded-md overflow-hidden">
+                        <div className="max-h-40 overflow-y-auto">
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50 sticky top-0">
+                              <tr>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Email
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Reason
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {importResults.failedRecords.map(
+                                (record, idx) => (
+                                  <tr key={idx}>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                                      {record.email}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm text-red-600">
+                                      {record.reason}
+                                    </td>
+                                  </tr>
+                                )
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex space-x-4">
+                        <button
+                          onClick={downloadErrorReport}
+                          className="text-sm text-primary-600 flex items-center hover:text-primary-800"
+                        >
+                          <Download size={16} className="mr-1" />
+                          Download Error Report
+                        </button>
+
+                        <button
+                          onClick={handleRetryFailedImports}
+                          className="text-sm text-primary-600 flex items-center hover:text-primary-800"
+                        >
+                          <RefreshCw size={16} className="mr-1" />
+                          Retry Failed Imports
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="btn bg-primary-600 text-white hover:bg-primary-700"
+                      onClick={() => {
+                        setIsBulkImportModalOpen(false);
+                        setBulkImportTab("upload");
+                        setBulkImportFile(null);
+                        setBulkImportText("");
+                        setIsPreviewMode(false);
+                        setParsedUsers([]);
+                        setIsConfirmationMode(false);
+                        setImportProgress(0);
+                        setImportResults({
+                          success: 0,
+                          failed: 0,
+                          failedRecords: [],
+                          completed: false,
+                        });
+                      }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Existing tabs and content */}
+                  {/* Tabs */}
+                  <div className="border-b border-gray-200 mb-6">
+                    <div className="-mb-px flex space-x-8">
+                      <button
+                        onClick={() => setBulkImportTab("upload")}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                          bulkImportTab === "upload"
+                            ? "border-primary-500 text-primary-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        Upload File
+                      </button>
+                      <button
+                        onClick={() => setBulkImportTab("paste")}
+                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                          bulkImportTab === "paste"
+                            ? "border-primary-500 text-primary-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        Paste Data
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Template Link */}
+                  <div className="mb-6 bg-blue-50 p-4 rounded-md flex items-start">
+                    <div className="flex-shrink-0">
+                      <Download size={18} className="text-blue-500 mt-0.5" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-blue-800">
+                        Download Template
+                      </h3>
+                      <div className="mt-1 text-sm text-blue-700">
+                        <p>
+                          Use our template to ensure your data is correctly
+                          formatted.
+                          <button
+                            onClick={handleDownloadTemplate}
+                            className="ml-1 text-blue-600 underline hover:text-blue-800 focus:outline-none"
+                          >
+                            Download CSV Template
+                          </button>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tab Content */}
+                  {!isPreviewMode ? (
+                    <>
+                      {bulkImportTab === "upload" ? (
+                        <div>
+                          <div
+                            className={`border-2 ${
+                              isDragging
+                                ? "border-primary-400 bg-primary-50"
+                                : bulkImportFile
+                                ? "border-green-400 bg-green-50"
+                                : "border-dashed border-gray-300"
+                            } rounded-md px-6 pt-5 pb-6 flex flex-col items-center justify-center transition-colors ${
+                              bulkImportFile ? "py-3" : "py-6"
+                            }`}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragging(true);
+                            }}
+                            onDragEnter={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragging(true);
+                            }}
+                            onDragLeave={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragging(false);
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragging(false);
+
+                              const files = e.dataTransfer.files;
+                              if (files && files.length > 0) {
+                                const file = files[0];
+                                const fileType = file.name
+                                  .split(".")
+                                  .pop()
+                                  ?.toLowerCase();
+
+                                if (
+                                  ["csv", "xlsx", "xls"].includes(
+                                    fileType || ""
+                                  )
+                                ) {
+                                  setFileError("");
+                                  setBulkImportFile(file);
+                                  handleProcessFile(file);
+                                } else {
+                                  setFileError(
+                                    "Invalid file format. Please upload a CSV or Excel file."
+                                  );
+                                  setBulkImportFile(null);
+                                }
+                              }
+                            }}
+                          >
+                            <div className="space-y-2 text-center">
+                              {bulkImportFile ? (
+                                <div className="flex items-center space-x-2">
+                                  <Check size={20} className="text-green-500" />
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {bulkImportFile.name}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setBulkImportFile(null);
+                                      setFileError("");
+                                      setParsedUsers([]);
+                                    }}
+                                    className="text-gray-500 hover:text-red-500"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="mx-auto h-12 w-12 text-gray-400">
+                                    <FileUp
+                                      size={48}
+                                      className="text-gray-400"
+                                    />
+                                  </div>
+                                  <div className="flex text-sm text-gray-600">
+                                    <label
+                                      htmlFor="file-upload"
+                                      className="relative cursor-pointer rounded-md bg-white font-medium text-primary-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-primary-500 focus-within:ring-offset-2 hover:text-primary-500"
+                                    >
+                                      <span>Upload a file</span>
+                                      <input
+                                        id="file-upload"
+                                        name="file-upload"
+                                        type="file"
+                                        className="sr-only"
+                                        accept=".csv,.xlsx,.xls"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            setBulkImportFile(file);
+                                            handleProcessFile(file);
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                    <p className="pl-1">or drag and drop</p>
+                                  </div>
+                                  <p className="text-xs text-gray-500">
+                                    CSV or Excel files up to 5MB
+                                  </p>
+                                </>
+                              )}
+
+                              {isProcessingFile && (
+                                <div className="mt-2 flex items-center justify-center">
+                                  <RefreshCw
+                                    size={16}
+                                    className="animate-spin mr-2 text-primary-600"
+                                  />
+                                  <span className="text-sm text-primary-600">
+                                    Processing file...
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fileError && (
+                            <div className="mt-2 text-sm text-red-600">
+                              {fileError}
+                            </div>
+                          )}
+
+                          <p className="mt-3 text-xs text-gray-500">
+                            The file should have headers matching the template
+                            format. Make sure all required fields are filled.
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <textarea
+                            className="w-full h-64 border border-gray-300 rounded-md p-3 mb-2 font-mono text-sm"
+                            placeholder="Paste CSV data here... 
+Example:
+Full Name,Email Address,Initial Balance,User Role,Account Status
+John Doe,john.doe@example.com,5000,regular,active"
+                            value={bulkImportText}
+                            onChange={(e) => setBulkImportText(e.target.value)}
+                          ></textarea>
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              className="btn bg-primary-600 text-white hover:bg-primary-700 flex items-center"
+                              onClick={handleProcessPastedData}
+                              disabled={
+                                !bulkImportText.trim() || isProcessingFile
+                              }
+                            >
+                              {isProcessingFile ? (
+                                <>
+                                  <RefreshCw
+                                    size={16}
+                                    className="animate-spin mr-2"
+                                  />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>Process Data</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="data-preview">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-lg font-medium text-gray-900">
+                          Data Preview
+                        </h3>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-500">
+                            {parsedUsers.filter((u) => u.isValid).length} valid
+                            / {parsedUsers.length} total
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        className="border border-gray-200 rounded-md overflow-hidden mb-4"
+                        style={{ maxHeight: "50vh" }}
+                      >
+                        <div className="overflow-y-auto">
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12"
+                                >
+                                  <div className="flex items-center">
+                                    <button
+                                      onClick={toggleAllRows}
+                                      className="text-gray-500 hover:text-primary-600 focus:outline-none"
+                                      title={
+                                        parsedUsers.every((u) => u.include)
+                                          ? "Deselect all"
+                                          : "Select all valid"
+                                      }
+                                    >
+                                      {parsedUsers.every((u) => u.include) ? (
+                                        <CheckSquare
+                                          size={16}
+                                          className="text-primary-600"
+                                        />
+                                      ) : (
+                                        <Square size={16} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Name
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Email
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Balance
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Role
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Status
+                                </th>
+                                <th
+                                  scope="col"
+                                  className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                >
+                                  Validation
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {parsedUsers.map((user) => (
+                                <tr
+                                  key={user.rowId}
+                                  className={
+                                    !user.isValid
+                                      ? "bg-red-50"
+                                      : user.include
+                                      ? "bg-green-50"
+                                      : ""
+                                  }
+                                >
+                                  <td className="px-3 py-4 whitespace-nowrap">
+                                    <button
+                                      disabled={!user.isValid}
+                                      onClick={() =>
+                                        toggleRowSelection(user.rowId)
+                                      }
+                                      className={`text-gray-500 ${
+                                        user.isValid
+                                          ? "hover:text-primary-600 focus:outline-none"
+                                          : "opacity-50 cursor-not-allowed"
+                                      }`}
+                                      title={
+                                        user.include
+                                          ? "Remove from import"
+                                          : "Include in import"
+                                      }
+                                    >
+                                      {user.include ? (
+                                        <CheckSquare
+                                          size={16}
+                                          className="text-primary-600"
+                                        />
+                                      ) : (
+                                        <Square size={16} />
+                                      )}
+                                    </button>
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {user.data.full_name || (
+                                      <span className="italic text-red-500">
+                                        Missing
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {user.data.email || (
+                                      <span className="italic text-red-500">
+                                        Missing
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    D{user.data.initial_balance}
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm">
+                                    <span
+                                      className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                        user.data.role === "admin"
+                                          ? "bg-purple-100 text-purple-800"
+                                          : "bg-blue-100 text-blue-800"
+                                      }`}
+                                    >
+                                      {user.data.role || "regular"}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm">
+                                    <span
+                                      className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                        user.data.status === "active"
+                                          ? "bg-green-100 text-green-800"
+                                          : "bg-gray-100 text-gray-800"
+                                      }`}
+                                    >
+                                      {user.data.status || "active"}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-4 whitespace-nowrap text-sm">
+                                    {user.isValid ? (
+                                      <span className="text-green-600 flex items-center">
+                                        <Check size={16} className="mr-1" />{" "}
+                                        Valid
+                                      </span>
+                                    ) : (
+                                      <div className="text-red-600">
+                                        <span className="flex items-center">
+                                          <X size={16} className="mr-1" />{" "}
+                                          Invalid
+                                        </span>
+                                        <div className="mt-1 text-xs">
+                                          {user.errors.map((error, idx) => (
+                                            <div
+                                              key={idx}
+                                              className="text-red-500"
+                                            >
+                                              • {error}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {parsedUsers.length === 0 && (
+                                <tr>
+                                  <td
+                                    colSpan={7}
+                                    className="px-3 py-4 text-center text-sm text-gray-500"
+                                  >
+                                    No data to preview
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Scroll indicator when content is scrollable */}
+                      <div className="text-center mb-4 text-xs text-gray-500">
+                        <span>Scroll to see more records</span>
+                        <div className="mt-1">
+                          <svg
+                            className="h-4 w-4 mx-auto text-gray-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">
+                            {parsedUsers.filter((u) => u.isValid).length}
+                          </span>{" "}
+                          valid records,{" "}
+                          <span className="font-medium">
+                            {parsedUsers.filter((u) => !u.isValid).length}
+                          </span>{" "}
+                          invalid records
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Fixed footer with action buttons */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  {isPreviewMode && (
+                    <button
+                      onClick={() => {
+                        setIsPreviewMode(false);
+                        setParsedUsers([]);
+                      }}
+                      className="btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      Back
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-x-3 flex items-center">
+                  {isPreviewMode && (
+                    <div className="text-sm mr-3">
+                      <span className="text-green-600 font-medium">
+                        {
+                          parsedUsers.filter((u) => u.isValid && u.include)
+                            .length
+                        }
+                      </span>{" "}
+                      users will be imported
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    onClick={() => {
+                      setIsBulkImportModalOpen(false);
+                      setBulkImportTab("upload");
+                      setBulkImportFile(null);
+                      setBulkImportText("");
+                      setIsPreviewMode(false);
+                      setParsedUsers([]);
+                      setIsConfirmationMode(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+
+                  {isPreviewMode && (
+                    <button
+                      type="button"
+                      className="btn bg-green-600 text-white hover:bg-green-700 flex items-center"
+                      disabled={
+                        isImporting ||
+                        parsedUsers.filter((u) => u.isValid && u.include)
+                          .length === 0
+                      }
+                      onClick={handleBulkImport}
+                    >
+                      <Upload size={16} className="mr-2" />
+                      Continue to Import
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress indicator during import process */}
+          {isImporting && (
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-10">
+              <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full text-center">
+                <RefreshCw
+                  size={36}
+                  className="mx-auto mb-4 text-primary-600 animate-spin"
+                />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  Importing Users
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Please wait while we process your request...
+                </p>
+
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                  <div
+                    className="bg-primary-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${importProgress}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  {importProgress}% complete
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add the BulkTransactionModal component */}
+      {isBulkTransactionModalOpen && (
+        <BulkTransactionModal
+          isOpen={isBulkTransactionModalOpen}
+          onClose={() => setIsBulkTransactionModalOpen(false)}
+          onTransactionsCompleted={fetchUsers}
+          users={users}
+        />
       )}
     </div>
   );
